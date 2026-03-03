@@ -1,0 +1,25 @@
+{
+    'name': 'Retenciones Ganancias/IVA — Mejoras UX',
+    'version': '17.0.1.0.0',
+    'summary': 'Chatter tracking, certificado profesional y fix diario para retenciones',
+    'category': 'Accounting',
+    'author': 'Guvens Consultora',
+    'website': 'https://guvens.com.ar',
+    'depends': [
+        'account',
+        'mail',
+        'account_withholding',
+        'account_withholding_automatic',
+        'l10n_ar_report_withholding',
+        'l10n_ar_report_payment_group',
+    ],
+    'data': [
+        'security/ir.model.access.csv',
+        'views/account_tax_view.xml',
+        'report/report_withholding_certificate.xml',
+    ],
+    'license': 'LGPL-3',
+    'installable': True,
+    'application': False,
+    'auto_install': False,
+}

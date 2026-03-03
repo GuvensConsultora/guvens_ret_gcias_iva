@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <data>
+        <!-- Agrega campo "Diario de Retención" en la vista del impuesto.
+             Por qué: permite asignar un diario específico por impuesto de retención
+             para que el motor OCA use el diario correcto al crear el pago. -->
+        <record id="view_tax_form_withholding_journal" model="ir.ui.view">
+            <field name="name">account.tax.form.withholding.journal</field>
+            <field name="model">account.tax</field>
+            <field name="inherit_id" ref="account_withholding_automatic.view_tax_form"/>
+            <field name="arch" type="xml">
+                <xpath expr="//group[@name='withholdings']" position="inside">
+                    <field name="withholding_journal_id" invisible="withholding_type == 'none'"/>
+                </xpath>
+            </field>
+        </record>
+    </data>
+</odoo>
