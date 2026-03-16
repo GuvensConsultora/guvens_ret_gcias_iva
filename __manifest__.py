@@ -17,6 +17,8 @@
         'security/ir.model.access.csv',
         'views/account_tax_view.xml',
         'report/report_withholding_certificate.xml',
+        'report/report_sicore_retenciones.xml',
+        'wizard/sicore_export_wizard_view.xml',
     ],
     'license': 'LGPL-3',
     'installable': True,

@@ -1,0 +1,66 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <!-- Vista form del wizard SICORE -->
+    <record id="view_sicore_export_wizard_form" model="ir.ui.view">
+        <field name="name">sicore.export.wizard.form</field>
+        <field name="model">sicore.export.wizard</field>
+        <field name="arch" type="xml">
+            <form string="Exportar Retenciones SICORE">
+                <!-- Estado draft: formulario de filtros -->
+                <group attrs="{'invisible': [('state', '=', 'done')]}">
+                    <group>
+                        <field name="date_from"/>
+                        <field name="date_to"/>
+                        <field name="period" readonly="1"/>
+                    </group>
+                    <group>
+                        <field name="tax_id"/>
+                        <field name="cod_impuesto"/>
+                    </group>
+                </group>
+
+                <!-- Estado done: archivos para descargar -->
+                <group attrs="{'invisible': [('state', '=', 'draft')]}">
+                    <div class="alert alert-success" role="alert">
+                        <strong>Archivos generados correctamente.</strong>
+                        Descargue los archivos haciendo click en cada uno.
+                    </div>
+                    <group string="Archivos TXT para ARCA">
+                        <field name="file_beneficio" filename="file_beneficio_name"/>
+                        <field name="file_beneficio_name" invisible="1"/>
+                        <field name="file_perfeccionan" filename="file_perfeccionan_name"/>
+                        <field name="file_perfeccionan_name" invisible="1"/>
+                    </group>
+                    <group string="Reporte PDF">
+                        <field name="file_pdf" filename="file_pdf_name"/>
+                        <field name="file_pdf_name" invisible="1"/>
+                    </group>
+                </group>
+
+                <field name="state" invisible="1"/>
+
+                <footer>
+                    <button name="action_generate" string="Generar Archivos"
+                            type="object" class="btn-primary"
+                            attrs="{'invisible': [('state', '=', 'done')]}"/>
+                    <button string="Cerrar" class="btn-secondary" special="cancel"/>
+                </footer>
+            </form>
+        </field>
+    </record>
+
+    <!-- Acción para abrir el wizard -->
+    <record id="action_sicore_export_wizard" model="ir.actions.act_window">
+        <field name="name">Exportar SICORE Ganancias</field>
+        <field name="res_model">sicore.export.wizard</field>
+        <field name="view_mode">form</field>
+        <field name="target">new</field>
+    </record>
+
+    <!-- Menú bajo Contabilidad > Retenciones -->
+    <menuitem id="menu_sicore_export"
+              name="Exportar SICORE Ganancias"
+              parent="account.menu_finance_reports"
+              action="action_sicore_export_wizard"
+              sequence="100"/>
+</odoo>

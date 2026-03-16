@@ -1,0 +1,100 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <!-- Acción de reporte PDF -->
+    <record id="action_report_sicore_retenciones" model="ir.actions.report">
+        <field name="name">Retenciones Ganancias SICORE</field>
+        <field name="model">sicore.export.wizard</field>
+        <field name="report_type">qweb-pdf</field>
+        <field name="report_name">guvens_ret_gcias_iva.report_sicore_retenciones_document</field>
+        <field name="report_file">guvens_ret_gcias_iva.report_sicore_retenciones_document</field>
+        <field name="print_report_name">'Retenciones_Ganancias_%s' % object.period</field>
+    </record>
+
+    <!-- Template QWeb del reporte -->
+    <template id="report_sicore_retenciones_document">
+        <t t-call="web.html_container">
+            <t t-foreach="docs" t-as="wizard">
+                <t t-call="web.external_layout">
+                    <div class="page">
+                        <!-- Encabezado -->
+                        <div class="text-center" style="margin-bottom: 20px;">
+                            <h2>Retenciones Impuesto a las Ganancias</h2>
+                            <h4>Período: <t t-esc="data.get('date_from', '')"/> al <t t-esc="data.get('date_to', '')"/></h4>
+                            <p>
+                                <strong>Empresa:</strong> <t t-esc="data.get('company', '')"/>
+                                <br/>
+                                <strong>CUIT:</strong> <t t-esc="data.get('cuit_company', '')"/>
+                                <br/>
+                                <strong>Impuesto:</strong> <t t-esc="data.get('tax_name', '')"/>
+                                (<t t-esc="data.get('cod_impuesto', '')"/>)
+                            </p>
+                        </div>
+
+                        <!-- Tabla de retenciones -->
+                        <table class="table table-sm table-bordered" style="font-size: 11px;">
+                            <thead>
+                                <tr style="background-color: #e8f0fe;">
+                                    <th>Fecha</th>
+                                    <th>Proveedor</th>
+                                    <th>CUIT</th>
+                                    <th>Nro. Retención</th>
+                                    <th>Régimen</th>
+                                    <th class="text-right">Importe Retenido</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <t t-foreach="data.get('payments_data', [])" t-as="pay">
+                                    <tr>
+                                        <td><t t-esc="pay['date']" t-options='{"widget": "date"}'/></td>
+                                        <td><t t-esc="pay['partner']"/></td>
+                                        <td><t t-esc="pay['cuit']"/></td>
+                                        <td><t t-esc="pay['withholding_number']"/></td>
+                                        <td style="font-size: 10px;"><t t-esc="pay['regimen']"/></td>
+                                        <td class="text-right">
+                                            <t t-esc="pay['amount']" t-options='{"widget": "monetary", "display_currency": res_company.currency_id}'/>
+                                        </td>
+                                    </tr>
+                                    <!-- Detalle facturas asociadas -->
+                                    <t t-if="pay.get('invoices')">
+                                        <tr style="background-color: #f8f9fa;">
+                                            <td colspan="6" style="padding-left: 30px; font-size: 10px;">
+                                                <em>Comprobantes asociados:</em>
+                                                <t t-foreach="pay['invoices']" t-as="inv">
+                                                    <span style="margin-left: 10px;">
+                                                        <t t-esc="inv['name']"/>
+                                                        (<t t-esc="inv['date']" t-options='{"widget": "date"}'/>)
+                                                        — Neto: <t t-esc="inv['untaxed']" t-options='{"widget": "monetary", "display_currency": res_company.currency_id}'/>
+                                                        — Total: <t t-esc="inv['total']" t-options='{"widget": "monetary", "display_currency": res_company.currency_id}'/>
+                                                    </span>
+                                                    <br/>
+                                                </t>
+                                            </td>
+                                        </tr>
+                                    </t>
+                                </t>
+                            </tbody>
+                            <tfoot>
+                                <tr style="background-color: #e8f0fe; font-weight: bold;">
+                                    <td colspan="5" class="text-right">TOTAL RETENIDO:</td>
+                                    <td class="text-right">
+                                        <t t-esc="data.get('total_retenido', 0)" t-options='{"widget": "monetary", "display_currency": res_company.currency_id}'/>
+                                    </td>
+                                </tr>
+                            </tfoot>
+                        </table>
+
+                        <!-- Pie con info SICORE -->
+                        <div style="margin-top: 20px; font-size: 10px; color: #666;">
+                            <p>
+                                Código Impuesto ARCA: <t t-esc="data.get('cod_impuesto', '')"/> —
+                                Período: <t t-esc="data.get('date_from', '')"/> al <t t-esc="data.get('date_to', '')"/>
+                                <br/>
+                                Generado para importación SICORE/SIRE - ARCA
+                            </p>
+                        </div>
+                    </div>
+                </t>
+            </t>
+        </t>
+    </template>
+</odoo>
