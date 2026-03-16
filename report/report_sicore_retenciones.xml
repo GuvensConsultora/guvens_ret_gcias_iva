@@ -10,23 +10,32 @@
         <field name="print_report_name">'Retenciones_Ganancias_%s' % object.period</field>
     </record>
 
-    <!-- Template QWeb del reporte -->
+    <!-- Template QWeb del reporte — lee datos desde el wizard (docs) -->
     <template id="report_sicore_retenciones_document">
         <t t-call="web.html_container">
             <t t-foreach="docs" t-as="wizard">
+                <!-- Obtener datos de retenciones via método del wizard -->
+                <t t-set="payments" t-value="wizard._get_withholding_payments()"/>
+                <t t-set="pdf_data" t-value="wizard._build_pdf_data(payments)"/>
+                <t t-set="payments_data" t-value="pdf_data[0]"/>
+                <t t-set="total_retenido" t-value="pdf_data[1]"/>
+
                 <t t-call="web.external_layout">
                     <div class="page">
                         <!-- Encabezado -->
                         <div class="text-center" style="margin-bottom: 20px;">
                             <h2>Retenciones Impuesto a las Ganancias</h2>
-                            <h4>Período: <t t-esc="data.get('date_from', '')"/> al <t t-esc="data.get('date_to', '')"/></h4>
+                            <h4>
+                                Período: <t t-esc="wizard.date_from" t-options='{"widget": "date"}'/>
+                                al <t t-esc="wizard.date_to" t-options='{"widget": "date"}'/>
+                            </h4>
                             <p>
-                                <strong>Empresa:</strong> <t t-esc="data.get('company', '')"/>
+                                <strong>Empresa:</strong> <t t-esc="wizard.env.company.name"/>
                                 <br/>
-                                <strong>CUIT:</strong> <t t-esc="data.get('cuit_company', '')"/>
+                                <strong>CUIT:</strong> <t t-esc="wizard.env.company.vat or ''"/>
                                 <br/>
-                                <strong>Impuesto:</strong> <t t-esc="data.get('tax_name', '')"/>
-                                (<t t-esc="data.get('cod_impuesto', '')"/>)
+                                <strong>Impuesto:</strong> <t t-esc="wizard.tax_id.name"/>
+                                (<t t-esc="wizard.cod_impuesto"/>)
                             </p>
                         </div>
 
@@ -39,18 +48,18 @@
                                     <th>CUIT</th>
                                     <th>Nro. Retención</th>
                                     <th>Régimen</th>
-                                    <th class="text-right">Importe Retenido</th>
+                                    <th class="text-end">Importe Retenido</th>
                                 </tr>
                             </thead>
                             <tbody>
-                                <t t-foreach="data.get('payments_data', [])" t-as="pay">
+                                <t t-foreach="payments_data" t-as="pay">
                                     <tr>
                                         <td><t t-esc="pay['date']" t-options='{"widget": "date"}'/></td>
                                         <td><t t-esc="pay['partner']"/></td>
                                         <td><t t-esc="pay['cuit']"/></td>
                                         <td><t t-esc="pay['withholding_number']"/></td>
                                         <td style="font-size: 10px;"><t t-esc="pay['regimen']"/></td>
-                                        <td class="text-right">
+                                        <td class="text-end">
                                             <t t-esc="pay['amount']" t-options='{"widget": "monetary", "display_currency": res_company.currency_id}'/>
                                         </td>
                                     </tr>
@@ -75,9 +84,9 @@
                             </tbody>
                             <tfoot>
                                 <tr style="background-color: #e8f0fe; font-weight: bold;">
-                                    <td colspan="5" class="text-right">TOTAL RETENIDO:</td>
-                                    <td class="text-right">
-                                        <t t-esc="data.get('total_retenido', 0)" t-options='{"widget": "monetary", "display_currency": res_company.currency_id}'/>
+                                    <td colspan="5" class="text-end">TOTAL RETENIDO:</td>
+                                    <td class="text-end">
+                                        <t t-esc="total_retenido" t-options='{"widget": "monetary", "display_currency": res_company.currency_id}'/>
                                     </td>
                                 </tr>
                             </tfoot>
@@ -86,8 +95,9 @@
                         <!-- Pie con info SICORE -->
                         <div style="margin-top: 20px; font-size: 10px; color: #666;">
                             <p>
-                                Código Impuesto ARCA: <t t-esc="data.get('cod_impuesto', '')"/> —
-                                Período: <t t-esc="data.get('date_from', '')"/> al <t t-esc="data.get('date_to', '')"/>
+                                Código Impuesto ARCA: <t t-esc="wizard.cod_impuesto"/> —
+                                Período: <t t-esc="wizard.date_from" t-options='{"widget": "date"}'/>
+                                al <t t-esc="wizard.date_to" t-options='{"widget": "date"}'/>
                                 <br/>
                                 Generado para importación SICORE/SIRE - ARCA
                             </p>

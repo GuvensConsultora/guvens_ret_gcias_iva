@@ -470,25 +470,11 @@ class SicoreExportWizard(models.TransientModel):
             txt_perfeccionan.encode('utf-8'))
         self.file_perfeccionan_name = 'SICORE_perfeccionan_derecho_%s.txt' % self.period
 
-        # 3. PDF (usar QWeb report)
-        data, total = self._build_pdf_data(payments)
-        # Guardar datos en context para el reporte
+        # 3. PDF (QWeb report — lee datos directamente del wizard via docs)
         report = self.env.ref(
             'guvens_ret_gcias_iva.action_report_sicore_retenciones')
         pdf_content, _ = report._render_qweb_pdf(
-            report.report_name,
-            res_ids=self.ids,
-            data={
-                'payments_data': data,
-                'total_retenido': total,
-                'period': self.period,
-                'date_from': self.date_from.strftime('%d/%m/%Y'),
-                'date_to': self.date_to.strftime('%d/%m/%Y'),
-                'company': self.env.company.name,
-                'cuit_company': self.env.company.vat or '',
-                'tax_name': self.tax_id.name,
-                'cod_impuesto': self.cod_impuesto,
-            })
+            report.report_name, res_ids=self.ids)
         self.file_pdf = base64.b64encode(pdf_content)
         self.file_pdf_name = 'Retenciones_Ganancias_%s.pdf' % self.period
 
