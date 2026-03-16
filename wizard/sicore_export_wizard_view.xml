@@ -7,7 +7,7 @@
         <field name="arch" type="xml">
             <form string="Exportar Retenciones SICORE">
                 <!-- Estado draft: formulario de filtros -->
-                <group attrs="{'invisible': [('state', '=', 'done')]}">
+                <group invisible="state == 'done'">
                     <group>
                         <field name="date_from"/>
                         <field name="date_to"/>
@@ -20,7 +20,7 @@
                 </group>
 
                 <!-- Estado done: archivos para descargar -->
-                <group attrs="{'invisible': [('state', '=', 'draft')]}">
+                <group invisible="state == 'draft'">
                     <div class="alert alert-success" role="alert">
                         <strong>Archivos generados correctamente.</strong>
                         Descargue los archivos haciendo click en cada uno.
@@ -42,7 +42,7 @@
                 <footer>
                     <button name="action_generate" string="Generar Archivos"
                             type="object" class="btn-primary"
-                            attrs="{'invisible': [('state', '=', 'done')]}"/>
+                            invisible="state == 'done'"/>
                     <button string="Cerrar" class="btn-secondary" special="cancel"/>
                 </footer>
             </form>
