@@ -25,15 +25,20 @@ class AccountTax(models.Model):
     )
 
     def get_withholding_vals(self, payment_group):
-        """Fix: OCA no guarda el resultado de la escala en period_withholding_amount.
-        Bug OCA (l10n_ar_account_withholding_automatic/models/account_tax.py):
-        - Línea 167: calcula period_withholding_amount = base × porcentaje_inscripto / 100
-          Para regímenes con escala (porcentaje_inscripto = -1), esto da un valor NEGATIVO.
-        - Línea 173-197: recalcula correctamente con la escala de ganancias.
-        - Línea 217: vals['period_withholding_amount'] = amount ← COMENTADO, nunca se guarda.
-        Resultado: la retención queda negativa → el motor la trata como $0.
-        Fix: después de super(), si el régimen usa escala, recalculamos con la escala
-        y guardamos el resultado en vals['period_withholding_amount'].
+        """Fix dos bugs OCA para retención Ganancias con escala.
+
+        Bug 1 — period_withholding_amount no se guarda:
+          OCA calcula base × porcentaje_inscripto / 100. Para escala (-1),
+          da negativo. Luego recalcula con escala pero la línea que guarda
+          el resultado está comentada (línea 217).
+
+        Bug 2 — monto no sujeto lee de partner en vez de payment_group:
+          OCA (línea 150) usa partner.default_regimen_ganancias_id para el
+          monto no sujeto. Si no está seteado en el partner, queda en $0
+          y no se resta de la base. Debería usar payment_group.regimen_ganancias_id.
+
+        Fix: después de super(), recalculamos base (restando monto no sujeto
+        del régimen del payment group) y aplicamos la escala correctamente.
         """
         vals = super().get_withholding_vals(payment_group)
 
@@ -49,11 +54,24 @@ class AccountTax(models.Model):
         if commercial_partner.imp_ganancias_padron != 'AC':
             return vals
 
-        # Recalcular con la escala usando la base que OCA ya computó
-        base_amount = vals.get('withholdable_base_amount', 0.0)
-        if base_amount <= 0:
+        # Fix Bug 2: recalcular base restando monto no sujeto del régimen
+        # del payment group (no del partner.default_regimen_ganancias_id)
+        base_amount = vals.get('total_amount', 0.0)
+        non_taxable = regimen.montos_no_sujetos_a_retencion
+        if base_amount < non_taxable:
+            # Base menor al mínimo no sujeto → retención = 0
+            vals['period_withholding_amount'] = 0.0
             return vals
 
+        base_amount -= non_taxable
+        vals['withholdable_base_amount'] = base_amount
+        vals['withholding_non_taxable_amount'] = non_taxable
+
+        if base_amount <= 0:
+            vals['period_withholding_amount'] = 0.0
+            return vals
+
+        # Fix Bug 1: aplicar escala y guardar el resultado
         escala = self.env['afip.tabla_ganancias.escala'].search([
             ('importe_desde', '<=', base_amount),
             ('importe_hasta', '>', base_amount),
@@ -61,11 +79,10 @@ class AccountTax(models.Model):
         if not escala:
             return vals
 
-        # Cálculo correcto: importe_fijo + (base - excedente) × porcentaje
+        # Cálculo: importe_fijo + (base - excedente) × porcentaje
         amount = escala.importe_fijo + (escala.porcentaje / 100.0) * (
             base_amount - escala.importe_excedente)
 
-        # Guardar el resultado que OCA dejó comentado
         vals['period_withholding_amount'] = amount
         vals['comment'] = "%s + (%s x %s)" % (
             escala.importe_fijo,
