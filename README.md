@@ -199,10 +199,15 @@ guvens_ret_gcias_iva/
 │   ├── account_tax.py           # Fix diario + campo withholding_journal_id
 │   ├── account_payment_group.py # Chatter diagnóstico + email con adjuntos
 │   └── account_payment.py       # Numeración por diario + helpers template
+├── wizard/
+│   ├── __init__.py
+│   ├── sicore_export_wizard.py      # Wizard exportación SICORE (2 TXT + PDF)
+│   └── sicore_export_wizard_view.xml # Vista form + menú del wizard
 ├── views/
 │   └── account_tax_view.xml     # Campo diario en form de impuesto
 ├── report/
-│   └── report_withholding_certificate.xml  # Certificado profesional QWeb
+│   ├── report_withholding_certificate.xml  # Certificado profesional QWeb
+│   └── report_sicore_retenciones.xml       # Reporte PDF retenciones SICORE
 └── security/
     └── ir.model.access.csv      # ACLs (hereda de módulos base)
 ```
@@ -366,6 +371,124 @@ Valores mensuales acumulados (fuente: ARCA, Art. 94 LIG, ene-jun 2026):
 | 15.187.728,49 | en adelante | 3.668.180,19 | 35 | 15.187.728,49 |
 
 > **Nota**: la escala varía por mes (enero = 1/12 del anual, febrero = 2/12, etc.). Estos valores son para marzo. Actualizar mensualmente en Odoo: Contabilidad → Configuración → Tabla Ganancias Escala.
+
+### Exportación SICORE — Archivos TXT para ARCA
+
+Este módulo incluye un wizard para generar los archivos TXT que se importan en SICORE/SIRE de ARCA para declarar retenciones de Ganancias.
+
+#### Acceso
+
+**Contabilidad → Informes → Exportar SICORE Ganancias**
+
+#### Paso a paso
+
+1. Abrir el wizard desde el menú
+2. Configurar los filtros:
+
+| Campo | Descripción | Ejemplo |
+|-------|-------------|---------|
+| Desde | Primer día del período a declarar | 01/03/2026 |
+| Hasta | Último día del período | 31/03/2026 |
+| Impuesto Ret. Ganancias | Impuesto tipo `Tabla de ganancias` configurado | Ret Ganancias A |
+| Código Impuesto ARCA | Código numérico ARCA del impuesto | `0787` (Ganancias) |
+
+3. Clickear **"Generar Archivos"**
+4. Descargar los 3 archivos generados:
+
+| Archivo | Formato | Para qué |
+|---------|---------|----------|
+| `SICORE_generan_beneficio_YYYYMM.txt` | CSV (coma) | Importar en SICORE → "Comprobantes que Generan Beneficio" (Modelo 1) |
+| `SICORE_perfeccionan_derecho_YYYYMM.txt` | CSV (coma) | Importar en SICORE → "Comprobantes que Perfeccionan Derecho a Beneficio" (Modelo 8) |
+| `Retenciones_Ganancias_YYYYMM.pdf` | PDF | Resumen imprimible con detalle de retenciones y comprobantes |
+
+#### Archivo 1: Generan Beneficio (Modelo 1) — 21 campos
+
+Este archivo contiene **una línea por cada retención** practicada en el período.
+
+| # | Campo | Valor que genera | Fuente Odoo |
+|---|-------|------------------|-------------|
+| 1 | Tipo Comprobante | `04` (Recibo A) | Fijo para retenciones |
+| 2 | Punto de venta | Del nro de retención | `payment.withholding_number` |
+| 3 | Nro Comprobante | Del nro de retención | `payment.withholding_number` |
+| 4 | CUIT Emisor | CUIT de la empresa | `company.vat` |
+| 5 | CUIT Vendedor | CUIT del proveedor retenido | `partner.vat` |
+| 6 | Descripción | "RETENCION GANANCIAS" | Fijo |
+| 7 | Importe IVA Facturado | Suma IVA facturas asociadas | `invoice.amount_tax` |
+| 8 | Importe Neto | Suma neto facturas asociadas | `invoice.amount_untaxed` |
+| 9 | IVA Computable | `0.00` | No aplica para Ganancias |
+| 10 | Signo | `+` | Positivo para retenciones |
+| 11 | Período DDJJ IVA | `YYYYMM` del período | `date_from` |
+| 12 | Período Pago | `YYYYMM` del período | `date_from` |
+| 13 | Medio Pago | `6` (Efectivo) | Fijo |
+| 14 | Crédito Fiscal | `D` (Directa) | Fijo |
+| 15 | Nro Certificado SIRE | vacío | No aplica |
+| 16 | Nro Certificado SICORE | vacío | No aplica |
+| 17 | Agente Ret IVA | `N` (No) | Ganancias, no IVA |
+| 18 | Monto Retenido | Importe de la retención | `payment.amount` |
+| 19 | Motivo no retención | `0` (Sin motivo) | Porque sí retuvimos |
+| 20 | Fecha Comprobante | Fecha del pago | `payment.date` |
+| 21 | Código Régimen | Código del régimen | `regimen_ganancias_id.codigo_de_regimen` |
+
+**Ejemplo de línea generada:**
+```
+04,00001,00000001,30712345679,20123456783,RETENCION GANANCIAS,31500.00,150000.00,0.00,+,202603,202603,6,D,,,N,1656.60,0,15/03/2026,94
+```
+
+#### Archivo 2: Perfeccionan Derecho a Beneficio (Modelo 8) — 17 campos
+
+Este archivo contiene **una línea por cada factura/NC** que originó la retención.
+
+| # | Campo | Valor que genera | Fuente Odoo |
+|---|-------|------------------|-------------|
+| 1 | Tipo Comprobante | Código AFIP del documento | `l10n_latam_document_type_id.code` |
+| 2 | Punto de venta | Del nro de factura | `invoice.name` |
+| 3 | Nro Comprobante | Del nro de factura | `invoice.name` |
+| 4 | Fecha Comprobante | Fecha de la factura | `invoice.invoice_date` |
+| 5 | CUIT Cliente | CUIT del proveedor | `partner.vat` |
+| 6 | Precio Total | Total de la factura | `invoice.amount_total` |
+| 7-16 | Campos transporte/exportación | vacío | No aplica para servicios locales |
+| 17 | Fecha Perfeccionamiento | Fecha de la factura | `invoice.invoice_date` |
+
+**Ejemplo de línea generada:**
+```
+01,00001,00000020,10/03/2026,20123456783,181500.00,,,,,,,,,,10/03/2026
+```
+
+#### Mapeo tipo comprobante Odoo → SICORE
+
+| Código AFIP | Tipo comprobante | Código SICORE |
+|-------------|-----------------|---------------|
+| 1 | Factura A | 01 |
+| 6 | Factura B | 06 |
+| 3 | Nota de Crédito A | 03 |
+| 8 | Nota de Crédito B | 08 |
+| 2 | Nota de Débito A | 02 |
+| 7 | Nota de Débito B | 07 |
+| 11/51 | Factura M | 51 |
+| 201 | FCE A | 201 |
+| 206 | FCE B | 206 |
+
+#### Importación en ARCA
+
+1. Ingresar a **ARCA → Mis Retenciones → SIRE/SICORE**
+2. Seleccionar el período (ej: 03/2026)
+3. Ir a **Importar datos**
+4. Subir primero el archivo **Perfeccionan Derecho** (Modelo 8)
+5. Subir luego el archivo **Generan Beneficio** (Modelo 1)
+6. Validar y presentar la DDJJ
+
+> **Nota**: el código de impuesto para Ganancias es `0787`. El código de régimen (campo 21) se toma del régimen seleccionado en el Grupo de Pago de Odoo (ej: `94` para locaciones de obra, `116` para profesionales liberales).
+
+#### Casos especiales
+
+| Caso | Comportamiento |
+|------|---------------|
+| Anticipo sin factura | Genera línea con tipo `04` (Recibo) y punto venta/nro `00000`/`00000000` |
+| Nota de crédito | Precio total negativo en archivo Perfeccionan Derecho |
+| Múltiples facturas en un pago | Una línea por factura en Perfeccionan Derecho, una línea de retención en Generan Beneficio |
+| Proveedor sin CUIT | CUIT `00000000000` (el wizard advierte pero no bloquea) |
+
+---
 
 ### Bugs OCA corregidos por este módulo
 
