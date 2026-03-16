@@ -24,6 +24,56 @@ class AccountTax(models.Model):
              'con método de pago Withholding.',
     )
 
+    def get_withholding_vals(self, payment_group):
+        """Fix: OCA no guarda el resultado de la escala en period_withholding_amount.
+        Bug OCA (l10n_ar_account_withholding_automatic/models/account_tax.py):
+        - Línea 167: calcula period_withholding_amount = base × porcentaje_inscripto / 100
+          Para regímenes con escala (porcentaje_inscripto = -1), esto da un valor NEGATIVO.
+        - Línea 173-197: recalcula correctamente con la escala de ganancias.
+        - Línea 217: vals['period_withholding_amount'] = amount ← COMENTADO, nunca se guarda.
+        Resultado: la retención queda negativa → el motor la trata como $0.
+        Fix: después de super(), si el régimen usa escala, recalculamos con la escala
+        y guardamos el resultado en vals['period_withholding_amount'].
+        """
+        vals = super().get_withholding_vals(payment_group)
+
+        # Solo aplica a tabla_ganancias con escala (porcentaje_inscripto = -1)
+        if self.withholding_type != 'tabla_ganancias':
+            return vals
+
+        regimen = payment_group.regimen_ganancias_id
+        if not regimen or regimen.porcentaje_inscripto != -1:
+            return vals
+
+        commercial_partner = payment_group.commercial_partner_id
+        if commercial_partner.imp_ganancias_padron != 'AC':
+            return vals
+
+        # Recalcular con la escala usando la base que OCA ya computó
+        base_amount = vals.get('withholdable_base_amount', 0.0)
+        if base_amount <= 0:
+            return vals
+
+        escala = self.env['afip.tabla_ganancias.escala'].search([
+            ('importe_desde', '<=', base_amount),
+            ('importe_hasta', '>', base_amount),
+        ], limit=1)
+        if not escala:
+            return vals
+
+        # Cálculo correcto: importe_fijo + (base - excedente) × porcentaje
+        amount = escala.importe_fijo + (escala.porcentaje / 100.0) * (
+            base_amount - escala.importe_excedente)
+
+        # Guardar el resultado que OCA dejó comentado
+        vals['period_withholding_amount'] = amount
+        vals['comment'] = "%s + (%s x %s)" % (
+            escala.importe_fijo,
+            base_amount - escala.importe_excedente,
+            escala.porcentaje / 100.0)
+
+        return vals
+
     def create_payment_withholdings(self, payment_group):
         """Override que corrige la selección de diario.
         Bug OCA: `if payment_method.id == payment_method.id` → siempre True.
