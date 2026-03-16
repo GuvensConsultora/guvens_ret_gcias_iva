@@ -296,20 +296,38 @@ Dependencias indirectas (instaladas por los OCA):
 7. **Verificar diario**: usa el diario configurado en el impuesto
 8. Confirmar → verificar número de retención asignado
 
-#### Test 2: Retención Ganancias (tabla_ganancias)
+#### Test 2: Retención Ganancias porcentaje fijo (régimen 94)
 
-1. Misma factura de $150.000 neto
+**Proveedor**: régimen 94 — Locaciones de obra/servicios, 2% inscripto, monto no sujeto $67.170
+
+1. Factura proveedor: $150.000 neto + IVA
 2. Calcular retenciones
 3. **Verificar chatter**: muestra régimen 94, % inscripto 2%, monto no sujeto $67.170
-4. **Verificar pago**: retención = (150.000 - 67.170) × 2% = $1.656,60
+4. **Verificar cálculo**:
+   - Base: $150.000 - $67.170 = $82.830
+   - Retención: $82.830 × 2% = **$1.656,60**
 
-#### Test 3: Retención = $0 (diagnóstico)
+#### Test 3: Retención Ganancias con escala (régimen 116 II)
+
+**Proveedor**: régimen 116 II — Profesionales liberales, escala, monto no sujeto $16.830
+
+1. Factura proveedor: $1.500.000 neto + IVA
+2. Calcular retenciones
+3. **Verificar cálculo** (escala marzo 2026):
+   - Base: $1.500.000 - $16.830 = $1.483.170
+   - Tramo: $1.000.015,04 a $1.500.022,56 → fijo $70.001,05 + 12%
+   - Retención: $70.001,05 + ($1.483.170 - $1.000.015,04) × 12%
+   - = $70.001,05 + $483.154,96 × 0,12
+   - = $70.001,05 + $57.978,60
+   - = **$127.979,65**
+
+#### Test 4: Retención = $0 (diagnóstico)
 
 1. Proveedor sin alícuota IIBB o con alícuota 0%
 2. Calcular retenciones
 3. **Verificar chatter**: checklist de 5 puntos con ✓/✗/⚠
 
-#### Test 4: Certificado de retención
+#### Test 5: Certificado de retención
 
 1. Desde grupo de pago confirmado con retención > $0
 2. Imprimir certificado
@@ -317,16 +335,42 @@ Dependencias indirectas (instaladas por los OCA):
 4. IIBB: dice "IIBB Buenos Aires", muestra nro IIBB
 5. Ganancias: dice "Impuesto a las Ganancias", muestra régimen
 
-#### Test 5: Envío por email
+#### Test 6: Envío por email
 
 1. Desde grupo de pago confirmado
 2. Clickear "Enviar por email"
 3. Verificar adjuntos: PDF Orden de Pago + PDF Certificado/s
 4. Enviar y verificar recepción
 
-#### Test 6: Casos borde
+#### Test 7: Casos borde
 
 - Múltiples retenciones (IIBB + Ganancias) en mismo grupo de pago
 - NC de proveedor incluida → base imponible neta correcta
 - Segundo pago al mismo proveedor en el período → acumulado previo descontado
 - Cambiar diario del impuesto y recalcular → usa nuevo diario
+
+### Escala de retención Ganancias RG 830 — Marzo 2026
+
+Valores mensuales acumulados (fuente: ARCA, Art. 94 LIG, ene-jun 2026):
+
+| Desde | Hasta | Fijo | % | Excedente |
+|-------|-------|------|---|-----------|
+| 0 | 500.007,52 | 0 | 5 | 0 |
+| 500.007,52 | 1.000.015,04 | 25.000,38 | 9 | 500.007,52 |
+| 1.000.015,04 | 1.500.022,56 | 70.001,05 | 12 | 1.000.015,04 |
+| 1.500.022,56 | 2.250.033,85 | 130.001,96 | 15 | 1.500.022,56 |
+| 2.250.033,85 | 4.500.067,70 | 242.503,65 | 19 | 2.250.033,85 |
+| 4.500.067,70 | 6.750.101,55 | 670.010,08 | 23 | 4.500.067,70 |
+| 6.750.101,55 | 10.125.152,32 | 1.187.517,87 | 27 | 6.750.101,55 |
+| 10.125.152,32 | 15.187.728,49 | 2.098.781,57 | 31 | 10.125.152,32 |
+| 15.187.728,49 | en adelante | 3.668.180,19 | 35 | 15.187.728,49 |
+
+> **Nota**: la escala varía por mes (enero = 1/12 del anual, febrero = 2/12, etc.). Estos valores son para marzo. Actualizar mensualmente en Odoo: Contabilidad → Configuración → Tabla Ganancias Escala.
+
+### Bugs OCA corregidos por este módulo
+
+| Bug | Causa raíz | Fix |
+|-----|-----------|-----|
+| Diario incorrecto | `payment_method.id == payment_method.id` (siempre True) → toma primer diario | Campo `withholding_journal_id` por impuesto |
+| Escala no se guarda | `vals['period_withholding_amount'] = amount` comentado (línea 217) → retención negativa para regímenes con escala | Override `get_withholding_vals()` recalcula y guarda post-super() |
+| Monto no sujeto = $0 | OCA lee de `partner.default_regimen_ganancias_id` en vez de `payment_group.regimen_ganancias_id` | Override usa régimen del payment group |
