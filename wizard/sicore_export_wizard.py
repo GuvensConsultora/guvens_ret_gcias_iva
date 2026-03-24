@@ -7,14 +7,13 @@ from odoo.exceptions import UserError
 
 
 class SicoreExportWizard(models.TransientModel):
-    """Wizard para exportar retenciones Ganancias en formato SICORE/SIRE.
+    """Wizard para exportar retenciones Ganancias en formato SICORE Estándar.
 
-    Por qué: ARCA requiere dos archivos TXT para declarar retenciones:
-    1. "Comprobantes que Generan Beneficio" (Modelo 1) — las retenciones
-    2. "Comprobantes que Perfeccionan Derecho a Beneficio" (Modelo 8) — los comprobantes de compra
-
-    Formato: CSV separado por comas, según "Manual para el desarrollador -
-    Importación de datos - Diseño de registro" de ARCA.
+    Por qué: ARCA requiere un TXT de posición fija ("Estándar Retenciones Versión 3.0")
+    para importar retenciones en el aplicativo SICORE.
+    Formato: 198 chars por registro, sin separadores entre campos.
+    Un registro por factura asociada al pago (base e importe prorrateados).
+    Ref: Manual SICORE - Diseño de registro (21 campos, 198 posiciones fijas).
     """
     _name = 'sicore.export.wizard'
     _description = 'Exportar Retenciones SICORE'
@@ -29,32 +28,30 @@ class SicoreExportWizard(models.TransientModel):
         required=True,
         default=fields.Date.context_today,
     )
-    # Por qué: ARCA pide el período YYYYMM para campos 11 (Periodo DDJJ IVA)
-    # y 12 (Periodo Pago) del Modelo 1
+    # Por qué: SICORE no usa el período directamente en el registro,
+    # pero sí para nombrar el archivo generado
     period = fields.Char(
         string='Período (YYYYMM)',
         compute='_compute_period',
         store=True,
     )
-    # Por qué: impuesto de Ganancias — filtra retenciones de ese impuesto
     tax_id = fields.Many2one(
         'account.tax',
         string='Impuesto Retención Ganancias',
         domain=[('withholding_type', '=', 'tabla_ganancias')],
         required=True,
     )
-    # Código de impuesto ARCA (ej: 0787 para Ganancias)
+    # Código ARCA del impuesto (3 dígitos):
+    # 217 = Ganancias general  |  787 = Ganancias Relación de Dependencia
     cod_impuesto = fields.Char(
         string='Código Impuesto ARCA',
-        default='0787',
-        help='0787 = Impuesto a las Ganancias',
+        default='217',
+        help='217 = Impuesto a las Ganancias (general)\n'
+             '787 = Ganancias - Relación de Dependencia',
     )
 
-    # Archivos generados
-    file_beneficio = fields.Binary(string='TXT Generan Beneficio', readonly=True)
-    file_beneficio_name = fields.Char(default='SICORE_generan_beneficio.txt')
-    file_perfeccionan = fields.Binary(string='TXT Perfeccionan Derecho', readonly=True)
-    file_perfeccionan_name = fields.Char(default='SICORE_perfeccionan_derecho.txt')
+    file_txt = fields.Binary(string='TXT SICORE', readonly=True)
+    file_txt_name = fields.Char(default='SICORE_retenciones.txt')
     file_pdf = fields.Binary(string='Reporte PDF', readonly=True)
     file_pdf_name = fields.Char(default='Retenciones_Ganancias.pdf')
 
@@ -66,16 +63,12 @@ class SicoreExportWizard(models.TransientModel):
     @api.depends('date_from')
     def _compute_period(self):
         for rec in self:
-            if rec.date_from:
-                rec.period = rec.date_from.strftime('%Y%m')
-            else:
-                rec.period = ''
+            rec.period = rec.date_from.strftime('%Y%m') if rec.date_from else ''
+
+    # ── Búsqueda ──────────────────────────────────────────────────────────────
 
     def _get_withholding_payments(self):
-        """Busca los pagos de retención del impuesto en el rango de fechas.
-        Ruta: account.payment con tax_withholding_id = impuesto seleccionado,
-        estado posted, y fecha en rango.
-        """
+        """Retorna los pagos de retención del impuesto en el rango de fechas."""
         domain = [
             ('tax_withholding_id', '=', self.tax_id.id),
             ('state', '=', 'posted'),
@@ -86,48 +79,14 @@ class SicoreExportWizard(models.TransientModel):
         payments = self.env['account.payment'].search(domain, order='date asc')
         if not payments:
             raise UserError(_(
-                'No se encontraron retenciones de "%s" '
-                'entre %s y %s.') % (
+                'No se encontraron retenciones de "%s" entre %s y %s.') % (
                     self.tax_id.name,
                     self.date_from.strftime('%d/%m/%Y'),
                     self.date_to.strftime('%d/%m/%Y')))
         return payments
 
-    def _get_comprobante_tipo(self, move):
-        """Mapea move_type de Odoo a código de comprobante SICORE.
-        Tabla tipos de comprobantes ARCA:
-        1 = Factura A, 6 = Factura B, 3 = Nota de Crédito A, etc.
-        """
-        if not move:
-            # Por qué: anticipo sin factura → usamos código 4 (Recibo A)
-            return '04'
-
-        doc_type = move.l10n_latam_document_type_id
-        if doc_type:
-            code = doc_type.code or ''
-            # Mapeo por código de documento AFIP
-            mapping = {
-                '1': '01',    # Factura A
-                '2': '02',    # Nota de Débito A
-                '3': '03',    # Nota de Crédito A
-                '6': '06',    # Factura B
-                '7': '07',    # Nota de Débito B
-                '8': '08',    # Nota de Crédito B
-                '11': '51',   # Factura M
-                '12': '52',   # Nota de Débito M
-                '13': '53',   # Nota de Crédito M
-                '51': '51',   # Factura M
-                '201': '201', # FCE A
-                '206': '206', # FCE B
-            }
-            return mapping.get(code, code.zfill(2) if code else '01')
-        return '01'
-
     def _get_invoices_for_payment(self, payment):
-        """Obtiene facturas asociadas al payment_group del pago de retención.
-        Por qué: el Modelo 8 (perfeccionan derecho) necesita los comprobantes
-        de compra que originaron la retención.
-        """
+        """Facturas de compra asociadas al payment_group del pago."""
         if not payment.payment_group_id:
             return self.env['account.move']
         moves = payment.payment_group_id.matched_move_line_ids.mapped('move_id')
@@ -135,342 +94,230 @@ class SicoreExportWizard(models.TransientModel):
             lambda m: m.move_type in ('in_invoice', 'in_refund')
         )
 
-    def _format_amount(self, amount, integer_digits=13, decimal_digits=2):
-        """Formatea monto: enteros.decimales con punto.
-        Ej: 1500.00 → '1500.00', longitud variable.
-        Por qué: ARCA usa longitud máxima (13.2*) pero acepta
-        valores más cortos en CSV.
-        """
-        if amount < 0:
-            amount = abs(amount)
-        fmt = f'{amount:.{decimal_digits}f}'
-        return fmt
+    # ── Helpers de formato SICORE (posición fija) ─────────────────────────────
 
-    def _format_cuit(self, vat):
-        """Limpia CUIT: solo números, 11 dígitos.
-        Por qué: campo 5 del Modelo 1 es numérico, 11 chars.
+    def _fmt_num16(self, amount):
+        """Numérico 16 chars: 13 enteros + ',' + 2 decimales.
+        Por qué: campo 4 (importe comprobante). Separador decimal = coma (SICORE).
+        Ej: 1500.75 → '0000000001500,75'
+        """
+        amount = abs(float(amount or 0))
+        enteros = int(amount)
+        # Por qué: round() evita errores de punto flotante en los centavos
+        centavos = round((amount - enteros) * 100)
+        return str(enteros).zfill(13) + ',' + str(centavos).zfill(2)
+
+    def _fmt_num14(self, amount):
+        """Numérico 14 chars: 11 enteros + ',' + 2 decimales.
+        Por qué: campos 8 (base cálculo) y 12 (importe retención).
+        Ej: 1500.75 → '00000001500,75'
+        """
+        amount = abs(float(amount or 0))
+        enteros = int(amount)
+        centavos = round((amount - enteros) * 100)
+        return str(enteros).zfill(11) + ',' + str(centavos).zfill(2)
+
+    def _fmt_cuit(self, vat):
+        """CUIT limpio: solo dígitos, 11 chars, zfill.
+        Por qué: campos 16 y 21 son numéricos sin guiones ni espacios.
         """
         if not vat:
             return '00000000000'
         clean = ''.join(c for c in vat if c.isdigit())
-        return clean.ljust(11, '0')[:11]
+        return clean.zfill(11)[:11]
 
-    def _get_sign(self, move):
-        """Signo del comprobante: + para facturas/débito, - para créditos.
-        Por qué: campo 10 del Modelo 1.
+    def _get_cod_comprobante(self, inv):
+        """Mapea tipo de comprobante AFIP al código SICORE de 2 chars.
+        Por qué: campo 1 — tabla tipos de comprobante SICORE.
+        01=Factura, 02=Recibo, 03=Nota de Crédito, 04=Nota de Débito.
         """
-        if move and move.move_type == 'in_refund':
-            return '-'
-        return '+'
+        if not inv:
+            # Anticipo sin factura → Recibo
+            return '02'
+        # NC de proveedor → código 03
+        if inv.move_type == 'in_refund':
+            return '03'
+        doc_type = inv.l10n_latam_document_type_id
+        if not doc_type:
+            return '01'
+        mapping = {
+            '1': '01', '6': '01', '11': '01',   # Facturas A, B, M
+            '51': '01', '201': '01', '206': '01', '211': '01',  # FCE
+            '2': '04', '7': '04', '12': '04',    # Notas de Débito
+            '3': '03', '8': '03', '13': '03',    # Notas de Crédito
+        }
+        return mapping.get(str(doc_type.code or '1'), '01')
 
-    def _get_regimen_code(self, payment):
-        """Código de régimen de retención para el campo 21 del Modelo 1.
-        Por qué: ARCA necesita el código numérico del régimen (ej: 94, 116).
+    def _get_cod_condicion(self, partner):
+        """Código de condición SICORE desde imp_ganancias_padron del partner.
+        Por qué: campo 10 — indica la situación fiscal del retenido ante AFIP.
+        01=Inscripto, 02=No inscripto, 04=Exento, 05=No alcanzado.
+        """
+        padron = getattr(partner, 'imp_ganancias_padron', '') or ''
+        return {
+            'AC': '01',
+            'NI': '02',
+            'EX': '04',
+            'NA': '05',
+        }.get(padron, '01')
+
+    # ── Constructor de registro ────────────────────────────────────────────────
+
+    def _build_record(self, payment, inv, base_inv, ret_inv):
+        """Construye un registro SICORE de exactamente 198 chars.
+
+        Por qué: el formato "Estándar Retenciones" exige posición fija
+        sin separadores. Cada campo tiene longitud y alineación definida.
+        Patrón: mismo principio que ARBA A-122R pero con 21 campos y 198 chars.
+
+        Args:
+            payment : account.payment — el pago de retención
+            inv     : account.move | False — factura asociada (False = anticipo)
+            base_inv: float — base de cálculo prorrateada para esta factura
+            ret_inv : float — importe retención prorrateado para esta factura
         """
         pg = payment.payment_group_id
+        partner = pg.commercial_partner_id if pg else payment.partner_id
+        company = payment.company_id
+
+        # 1. Código comprobante (2, num)
+        f1 = self._get_cod_comprobante(inv)
+
+        # 2. Fecha emisión comprobante (10, alfa DD/MM/AAAA)
+        f2 = (inv.invoice_date if inv else payment.date).strftime('%d/%m/%Y')
+
+        # 3. Número comprobante (16, alfa, ljust + espacios)
+        # Por qué: nombre del comprobante AFIP tal como está en Odoo (ej: "FA-A 0001-00000020")
+        nombre_comp = (inv.name if inv else payment.withholding_number or payment.name) or ''
+        f3 = nombre_comp.strip()[:16].ljust(16)
+
+        # 4. Importe comprobante (16, num 13ent+coma+2dec)
+        f4 = self._fmt_num16(inv.amount_total if inv else payment.amount)
+
+        # 5. Código impuesto (3, num, zfill)
+        f5 = (self.cod_impuesto or '217').strip().zfill(3)[:3]
+
+        # 6. Código régimen (4, num, zfill)
+        # Por qué: identifica el régimen de retención Ganancias en ARCA
+        regimen_code = ''
         if pg and pg.regimen_ganancias_id:
-            return pg.regimen_ganancias_id.codigo_de_regimen or ''
-        return ''
+            regimen_code = pg.regimen_ganancias_id.codigo_de_regimen or ''
+        f6 = regimen_code.strip().zfill(4)[:4] if regimen_code else '0000'
 
-    def _build_generan_beneficio(self, payments):
-        """Genera TXT de 'Comprobantes que Generan Beneficio' - Modelo 1.
+        # 7. Código operación (1) → 1=Retención (siempre)
+        f7 = '1'
 
-        Diseño de registro (21 campos, separados por coma):
-        1.  Tipo de Comprobante (10, numérico) → tabla comprobantes
-        2.  Punto de venta (5*, numérico)
-        3.  Nro. Comprobante (8*, numérico)
-        4.  CUIT Emisor (11, numérico)
-        5.  CUIT Vendedor (11, numérico) → CUIT del sujeto retenido
-        6.  Descripción Bien (100*, alfanumérico)
-        7.  Importe IVA Facturado (13.2*, numérico)
-        8.  Importe Neto (13.2*, numérico)
-        9.  Importe IVA Computable (13.2*, numérico)
-        10. Signo Comprobante (1, alfanumérico) → + o -
-        11. Periodo DDJJ IVA (6, numérico) → YYYYMM
-        12. Periodo Pago (6, numérico) → YYYYMM
-        13. Medio Pago (numérico) → tabla medios de pago
-        14. Crédito Fiscal (1, alfanumérico) → D (Directa) o I (Indirecta)
-        15. Nro. Certificado Sire (numérico)
-        16. Nro. Certificado Sicore (numérico)
-        17. Agente de retención de IVA (1, alfanumérico) → S o N
-        18. Monto IVA Retenido (13.2*, numérico)
-        19. Motivo no retención (numérico) → tabla motivos
-        20. Fecha comprobante (10, alfanumérico) → DD/MM/AAAA
-        21. Código de régimen de retención (numérico) → tabla regímenes
-        """
-        lines = []
-        for payment in payments:
-            pg = payment.payment_group_id
-            partner = pg.commercial_partner_id if pg else payment.partner_id
-            cuit_retenido = self._format_cuit(partner.vat)
+        # 8. Base de cálculo (14, num 11ent+coma+2dec)
+        f8 = self._fmt_num14(base_inv)
 
-            # CUIT del agente de retención (nuestra empresa)
-            company = payment.company_id
-            cuit_emisor = self._format_cuit(company.vat)
+        # 9. Fecha emisión retención (10, alfa DD/MM/AAAA)
+        f9 = payment.date.strftime('%d/%m/%Y')
 
-            # Comprobante: usamos Recibo (código 04 = Recibo A) para la retención
-            # El nro viene del withholding_number o payment name
-            wh_number = payment.withholding_number or payment.name or ''
-            # Extraer punto de venta y número del comprobante
-            punto_venta, nro_comp = self._parse_comprobante_number(wh_number)
+        # 10. Código condición (2, num)
+        f10 = self._get_cod_condicion(partner)
 
-            # Facturas asociadas para calcular IVA
-            invoices = self._get_invoices_for_payment(payment)
-            iva_facturado = sum(
-                inv.amount_tax for inv in invoices
-                if inv.move_type == 'in_invoice'
+        # 11. Retención a sujeto suspendido (1) → 0=No (siempre para Ganancias)
+        f11 = '0'
+
+        # 12. Importe retención (14, num 11ent+coma+2dec)
+        f12 = self._fmt_num14(ret_inv)
+
+        # 13. Porcentaje exclusión (6) → sin exclusión
+        f13 = '000,00'
+
+        # 14. Fecha boletín oficial (10, alfa) → no aplica → espacios
+        f14 = ' ' * 10
+
+        # 15. Tipo documento retenido (2, num) → 80=CUIT
+        f15 = '80'
+
+        # 16. Nro. documento retenido (20, alfa, ljust+espacios)
+        # Por qué: 11 dígitos CUIT + 9 espacios para completar los 20 chars
+        f16 = self._fmt_cuit(partner.vat).ljust(20)
+
+        # 17. Nro. certificado original (14, num) → ceros (solo para anulaciones)
+        f17 = '0' * 14
+
+        # 18. Denominación ordenante/pagador (30, alfa, ljust+espacios)
+        f18 = (company.name or '')[:30].ljust(30)
+
+        # 19. Acrecentamiento (1) → 0=No (no aplica a beneficiarios locales)
+        f19 = '0'
+
+        # 20. CUIT país del retenido exterior (11, num) → ceros (beneficiarios locales)
+        f20 = '0' * 11
+
+        # 21. CUIT ordenante/pagador (11, num)
+        f21 = self._fmt_cuit(company.vat)
+
+        record = f1 + f2 + f3 + f4 + f5 + f6 + f7 + f8 + f9 + f10 + \
+                 f11 + f12 + f13 + f14 + f15 + f16 + f17 + f18 + f19 + f20 + f21
+
+        # Tip: este assert falla en desarrollo si algún campo tiene longitud incorrecta,
+        # facilitando el diagnóstico antes de llegar a SICORE
+        assert len(record) == 198, (
+            'Registro SICORE con longitud %d (esperado 198). '
+            'Pago: %s | Factura: %s' % (
+                len(record),
+                payment.name,
+                inv.name if inv else 'anticipo',
             )
-            importe_neto = sum(
-                inv.amount_untaxed for inv in invoices
-                if inv.move_type == 'in_invoice'
-            )
-            # Por qué: para retenciones Ganancias, el IVA computable
-            # generalmente es 0 (no genera crédito fiscal)
-            iva_computable = 0.0
+        )
+        return record
 
-            # Signo: + para operaciones normales
-            signo = '+'
+    # ── Generador del TXT ─────────────────────────────────────────────────────
 
-            # Período
-            period = self.period
+    def _build_txt(self, payments):
+        """Genera el TXT SICORE: un registro de 198 chars por factura por pago.
 
-            # Medio de pago: 6 = Efectivo (default para retenciones)
-            medio_pago = '6'
-
-            # Crédito fiscal: D = Directa
-            credito_fiscal = 'D'
-
-            # Nro certificado SIRE/SICORE
-            nro_cert_sire = ''
-            nro_cert_sicore = ''
-
-            # Agente de retención de IVA: N (este es Ganancias, no IVA)
-            agente_ret_iva = 'N'
-
-            # Monto retenido
-            monto_retenido = self._format_amount(payment.amount)
-
-            # Motivo no retención: 0 (sin motivo, porque sí retuvimos)
-            motivo_no_ret = '0'
-
-            # Fecha comprobante
-            fecha = payment.date.strftime('%d/%m/%Y') if payment.date else ''
-
-            # Código de régimen
-            cod_regimen = self._get_regimen_code(payment)
-
-            # Descripción del bien/servicio
-            descripcion = 'RETENCION GANANCIAS'
-
-            # Armar línea CSV (21 campos)
-            line = ','.join([
-                '04',                                    # 1. Tipo comprobante (Recibo A)
-                punto_venta,                             # 2. Punto de venta
-                nro_comp,                                # 3. Nro comprobante
-                cuit_emisor,                             # 4. CUIT Emisor
-                cuit_retenido,                           # 5. CUIT Vendedor (retenido)
-                descripcion,                             # 6. Descripción Bien
-                self._format_amount(iva_facturado),      # 7. Importe IVA Facturado
-                self._format_amount(importe_neto),       # 8. Importe Neto
-                self._format_amount(iva_computable),     # 9. Importe IVA Computable
-                signo,                                   # 10. Signo
-                period,                                  # 11. Periodo DDJJ IVA
-                period,                                  # 12. Periodo Pago
-                medio_pago,                              # 13. Medio Pago
-                credito_fiscal,                          # 14. Crédito Fiscal
-                nro_cert_sire,                           # 15. Nro Certificado Sire
-                nro_cert_sicore,                         # 16. Nro Certificado Sicore
-                agente_ret_iva,                          # 17. Agente ret IVA
-                monto_retenido,                          # 18. Monto IVA Retenido
-                motivo_no_ret,                           # 19. Motivo no retención
-                fecha,                                   # 20. Fecha comprobante
-                cod_regimen,                             # 21. Código régimen retención
-            ])
-            lines.append(line)
-
-        return '\r\n'.join(lines)
-
-    def _build_perfeccionan_derecho(self, payments):
-        """Genera TXT de 'Comprobantes que Perfeccionan Derecho a Beneficio' - Modelo 8.
-
-        Diseño de registro (17 campos, separados por coma):
-        1.  Tipo de Comprobante (10, numérico)
-        2.  Punto de venta (5, numérico)
-        3.  Nro. Comprobante (8*, numérico)
-        4.  Fecha Comprobante (10, alfanumérico) → DD/MM/AAAA
-        5.  CUIT Cliente (11, numérico) → CUIT del sujeto retenido
-        6.  Precio Total (13.2*, numérico)
-        7.  Tipo Transporte (numérico) → tabla transporte (vacío si no aplica)
-        8.  Nombre Buque (30*, alfanumérico)
-        9.  Número Vuelo (10*, alfanumérico)
-        10. Número Viaje (10*, alfanumérico)
-        11. Nombre Cía. Transporte (30*, alfanumérico)
-        12. Tipo Documento Exportación (1, numérico)
-        13. Nro. Doc. Exportación (16*, numérico)
-        14. Nro. Permiso Embarque (16, alfanumérico)
-        15. Punto Venta Exp. (5*, numérico)
-        16. Nro. Comprobante Exp. (8*, numérico)
-        17. Fecha Perfeccionamiento (10, alfanumérico) → DD/MM/AAAA
+        Por qué: Opción B — un registro por factura asociada al pago.
+        Base e importe de retención se prorratean proporcionalmente
+        al importe de cada factura respecto al total del payment group.
+        Si no hay facturas (anticipo), se genera un único registro con
+        el monto total del pago.
         """
         lines = []
         for payment in payments:
             invoices = self._get_invoices_for_payment(payment)
-            pg = payment.payment_group_id
-            partner = pg.commercial_partner_id if pg else payment.partner_id
-            cuit = self._format_cuit(partner.vat)
+            base_total = payment.withholding_base_amount or 0.0
+            ret_total = payment.amount or 0.0
 
             if not invoices:
-                # Por qué: anticipo sin factura → generar línea con recibo
-                fecha = payment.date.strftime('%d/%m/%Y') if payment.date else ''
-                line = ','.join([
-                    '04',                                    # 1. Tipo (Recibo A)
-                    '00000',                                 # 2. Punto venta
-                    '00000000',                              # 3. Nro comprobante
-                    fecha,                                   # 4. Fecha
-                    cuit,                                    # 5. CUIT
-                    self._format_amount(payment.amount),     # 6. Precio Total
-                    '',                                      # 7. Tipo transporte
-                    '',                                      # 8. Nombre buque
-                    '',                                      # 9. Nro vuelo
-                    '',                                      # 10. Nro viaje
-                    '',                                      # 11. Cía transporte
-                    '',                                      # 12. Tipo doc exportación
-                    '',                                      # 13. Nro doc exportación
-                    '',                                      # 14. Nro permiso embarque
-                    '',                                      # 15. Punto venta exp
-                    '',                                      # 16. Nro comprobante exp
-                    fecha,                                   # 17. Fecha perfeccionamiento
-                ])
-                lines.append(line)
+                # Anticipo sin factura: un solo registro con el total
+                lines.append(self._build_record(payment, False, base_total, ret_total))
                 continue
 
+            # Prorrateo: base e importe se distribuyen proporcionalmente
+            # al importe de cada factura respecto al total del grupo
+            total_facturas = sum(abs(inv.amount_total) for inv in invoices)
             for inv in invoices:
-                tipo_comp = self._get_comprobante_tipo(inv)
-                inv_name = inv.name or ''
-                punto_venta, nro_comp = self._parse_comprobante_number(inv_name)
-                fecha = inv.invoice_date.strftime('%d/%m/%Y') if inv.invoice_date else ''
-                precio_total = self._format_amount(inv.amount_total)
-                signo = self._get_sign(inv)
-
-                # Para NC, el precio es negativo en SICORE
-                if inv.move_type == 'in_refund':
-                    precio_total = self._format_amount(-abs(inv.amount_total))
-
-                line = ','.join([
-                    tipo_comp,          # 1. Tipo comprobante
-                    punto_venta,        # 2. Punto venta
-                    nro_comp,           # 3. Nro comprobante
-                    fecha,              # 4. Fecha comprobante
-                    cuit,               # 5. CUIT
-                    precio_total,       # 6. Precio Total
-                    '',                 # 7. Tipo transporte
-                    '',                 # 8. Nombre buque
-                    '',                 # 9. Nro vuelo
-                    '',                 # 10. Nro viaje
-                    '',                 # 11. Cía transporte
-                    '',                 # 12. Tipo doc exportación
-                    '',                 # 13. Nro doc exportación
-                    '',                 # 14. Nro permiso embarque
-                    '',                 # 15. Punto venta exp
-                    '',                 # 16. Nro comprobante exp
-                    fecha,              # 17. Fecha perfeccionamiento
-                ])
-                lines.append(line)
+                if total_facturas:
+                    proporcion = abs(inv.amount_total) / total_facturas
+                else:
+                    # Por qué: evitar división por cero si todos los importes son 0
+                    proporcion = 1.0 / len(invoices)
+                lines.append(self._build_record(
+                    payment, inv,
+                    base_total * proporcion,
+                    ret_total * proporcion,
+                ))
 
         return '\r\n'.join(lines)
 
-    def _parse_comprobante_number(self, name):
-        """Extrae punto de venta y número de un comprobante Odoo.
-        Ej: 'FA-A 0001-00000020' → ('00001', '00000020')
-        Ej: 'RET/2024/001' → ('00000', '00000001')
-        """
-        if not name:
-            return '00000', '00000000'
-
-        # Buscar patrón XXXX-XXXXXXXX
-        parts = name.split()
-        for part in parts:
-            if '-' in part:
-                segments = part.split('-')
-                if len(segments) >= 2:
-                    try:
-                        pv = segments[-2].strip()
-                        nc = segments[-1].strip()
-                        # Verificar que sean numéricos
-                        if pv.isdigit() and nc.isdigit():
-                            return pv.zfill(5), nc.zfill(8)
-                    except (ValueError, IndexError):
-                        pass
-
-        # Fallback: intentar extraer números
-        import re
-        nums = re.findall(r'\d+', name)
-        if len(nums) >= 2:
-            return nums[-2].zfill(5), nums[-1].zfill(8)
-        elif len(nums) == 1:
-            return '00000', nums[0].zfill(8)
-
-        return '00000', '00000000'
-
-    def _build_pdf_data(self, payments):
-        """Prepara datos para el reporte PDF de retenciones.
-        Por qué: el usuario necesita un resumen imprimible con todos
-        los datos que se incluyen en los TXT.
-        """
-        data = []
-        total_retenido = 0.0
-        for payment in payments:
-            pg = payment.payment_group_id
-            partner = pg.commercial_partner_id if pg else payment.partner_id
-            invoices = self._get_invoices_for_payment(payment)
-
-            regimen = ''
-            if pg and pg.regimen_ganancias_id:
-                regimen = '%s - %s' % (
-                    pg.regimen_ganancias_id.codigo_de_regimen or '',
-                    pg.regimen_ganancias_id.concepto_referencia or '',
-                )
-
-            data.append({
-                'date': payment.date,
-                'partner': partner.name,
-                'cuit': partner.vat or '',
-                'withholding_number': payment.withholding_number or payment.name or '',
-                'amount': payment.amount,
-                'regimen': regimen,
-                'invoices': [{
-                    'name': inv.name or '',
-                    'date': inv.invoice_date,
-                    'total': inv.amount_total,
-                    'untaxed': inv.amount_untaxed,
-                } for inv in invoices],
-            })
-            total_retenido += payment.amount
-
-        return data, total_retenido
+    # ── Acción principal ──────────────────────────────────────────────────────
 
     def action_generate(self):
-        """Genera los dos archivos TXT + reporte PDF."""
+        """Genera el TXT SICORE (posición fija 198 chars) + reporte PDF."""
         self.ensure_one()
-
         if self.date_from > self.date_to:
             raise UserError(_('La fecha "Desde" debe ser anterior a "Hasta".'))
 
         payments = self._get_withholding_payments()
 
-        # 1. TXT Generan Beneficio (Modelo 1)
-        txt_beneficio = self._build_generan_beneficio(payments)
-        self.file_beneficio = base64.b64encode(
-            txt_beneficio.encode('utf-8'))
-        self.file_beneficio_name = 'SICORE_generan_beneficio_%s.txt' % self.period
+        txt_content = self._build_txt(payments)
+        self.file_txt = base64.b64encode(txt_content.encode('utf-8'))
+        self.file_txt_name = 'SICORE_retenciones_%s.txt' % self.period
 
-        # 2. TXT Perfeccionan Derecho (Modelo 8)
-        txt_perfeccionan = self._build_perfeccionan_derecho(payments)
-        self.file_perfeccionan = base64.b64encode(
-            txt_perfeccionan.encode('utf-8'))
-        self.file_perfeccionan_name = 'SICORE_perfeccionan_derecho_%s.txt' % self.period
-
-        # 3. PDF (QWeb report — lee datos directamente del wizard via docs)
         report = self.env.ref(
             'guvens_ret_gcias_iva.action_report_sicore_retenciones')
         pdf_content, _ = report._render_qweb_pdf(
@@ -479,7 +326,6 @@ class SicoreExportWizard(models.TransientModel):
         self.file_pdf_name = 'Retenciones_Ganancias_%s.pdf' % self.period
 
         self.state = 'done'
-
         return {
             'type': 'ir.actions.act_window',
             'res_model': self._name,

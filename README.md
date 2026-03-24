@@ -258,7 +258,55 @@ l10n_ar_report_payment_group (OCA)
 Dependencias indirectas (instaladas por los OCA):
 - `l10n_ar_account_withholding`
 - `l10n_ar_account_withholding_automatic`
-- `l10n_ar_percepciones` (campo `perception_ids` en partner)
+
+> **⚠ Requerido explícito — `l10n_ar_percepciones`**
+> Este módulo **debe estar instalado** antes que `guvens_ret_gcias_iva`.
+> Agrega el campo `partner_type` al modelo `account.tax` y la pestaña de alícuotas
+> en el partner. Sin él, al abrir cualquier impuesto de retención aparece:
+> `OwlError: "account.tax"."partner_type" field is undefined.`
+> Instalarlo desde: **Ajustes → Aplicaciones → buscar `l10n_ar_percepciones`**.
+
+### Datos de ejemplo para las dos tablas de Ganancias
+
+#### Tabla 1 — Alícuotas y Montos (`afip.tabla_ganancias.alicuotasymontos`)
+
+| Campo | Ej. 1 — Bienes | Ej. 2 — Servicios | Ej. 3 — Profesionales | Ej. 4 — Honorarios directores |
+|---|---|---|---|---|
+| **Código régimen** | `0078` | `0094` | `0116` | `0025` |
+| **Anexo referencia** | II | II | II | II |
+| **Concepto referencia** | Enajenación bienes muebles y cambio | Locaciones de obra y servicios | Profesiones liberales, oficios | Comisionistas, rematadores |
+| **% Inscripto** | `2.00` | `2.00` | `-1` (escala) | `-1` (escala) |
+| **% No Inscripto** | `10.00` | `28.00` | `28.00` | `28.00` |
+| **Monto no sujeto** | `224000.00` | `67170.00` | `16830.00` | `16830.00` |
+
+> Ejemplos 3 y 4 usan `-1` en `% Inscripto` → el sistema aplica la escala progresiva.
+
+#### Tabla 2 — Escala progresiva (`afip.tabla_ganancias.escala`) — Marzo 2026
+
+Solo la usan los ejemplos 3 y 4. Cargar estos 9 tramos en **Contabilidad → Configuración → Tabla Ganancias Escala**:
+
+| Desde | Hasta | Fijo $ | % | Excedente de $ |
+|---|---|---|---|---|
+| `0` | `500007.52` | `0` | `5` | `0` |
+| `500007.52` | `1000015.04` | `25000.38` | `9` | `500007.52` |
+| `1000015.04` | `1500022.56` | `70001.05` | `12` | `1000015.04` |
+| `1500022.56` | `2250033.85` | `130001.96` | `15` | `1500022.56` |
+| `2250033.85` | `4500067.70` | `242503.65` | `19` | `2250033.85` |
+| `4500067.70` | `6750101.55` | `670010.08` | `23` | `4500067.70` |
+| `6750101.55` | `10125152.32` | `1187517.87` | `27` | `6750101.55` |
+| `10125152.32` | `15187728.49` | `2098781.57` | `31` | `10125152.32` |
+| `15187728.49` | `999999999` | `3668180.19` | `35` | `15187728.49` |
+
+#### Verificación de cálculo esperado
+
+| Ejemplo | Base bruta | Monto no sujeto | Base imponible | Cálculo | Retención esperada |
+|---|---|---|---|---|---|
+| Ej. 1 — Bienes ($300.000) | $300.000 | $224.000 | $76.000 | $76.000 × 2% | **$1.520,00** |
+| Ej. 2 — Servicios ($150.000) | $150.000 | $67.170 | $82.830 | $82.830 × 2% | **$1.656,60** |
+| Ej. 3 — Profesional ($500.000) | $500.000 | $16.830 | $483.170 | $483.170 × 5% (tramo 1) | **$24.158,50** |
+| Ej. 4 — Director ($1.200.000) | $1.200.000 | $16.830 | $1.183.170 | $70.001,05 + ($183.155 × 12%) | **$91.979,65** |
+
+---
 
 ### Verificación / Testing funcional
 
@@ -372,9 +420,9 @@ Valores mensuales acumulados (fuente: ARCA, Art. 94 LIG, ene-jun 2026):
 
 > **Nota**: la escala varía por mes (enero = 1/12 del anual, febrero = 2/12, etc.). Estos valores son para marzo. Actualizar mensualmente en Odoo: Contabilidad → Configuración → Tabla Ganancias Escala.
 
-### Exportación SICORE — Archivos TXT para ARCA
+### Exportación SICORE — Archivo TXT para ARCA
 
-Este módulo incluye un wizard para generar los archivos TXT que se importan en SICORE/SIRE de ARCA para declarar retenciones de Ganancias.
+Este módulo incluye un wizard para generar el archivo TXT que se importa en SICORE de ARCA usando el formato **"Estándar Retenciones Versión 3.0"** (posición fija, 198 caracteres por registro).
 
 #### Acceso
 
@@ -390,103 +438,80 @@ Este módulo incluye un wizard para generar los archivos TXT que se importan en 
 | Desde | Primer día del período a declarar | 01/03/2026 |
 | Hasta | Último día del período | 31/03/2026 |
 | Impuesto Ret. Ganancias | Impuesto tipo `Tabla de ganancias` configurado | Ret Ganancias A |
-| Código Impuesto ARCA | Código numérico ARCA del impuesto | `0787` (Ganancias) |
+| Código Impuesto ARCA | Código numérico ARCA (3 dígitos) | `217` (Ganancias general) |
 
 3. Clickear **"Generar Archivos"**
-4. Descargar los 3 archivos generados:
+4. Descargar los 2 archivos generados:
 
 | Archivo | Formato | Para qué |
 |---------|---------|----------|
-| `SICORE_generan_beneficio_YYYYMM.txt` | CSV (coma) | Importar en SICORE → "Comprobantes que Generan Beneficio" (Modelo 1) |
-| `SICORE_perfeccionan_derecho_YYYYMM.txt` | CSV (coma) | Importar en SICORE → "Comprobantes que Perfeccionan Derecho a Beneficio" (Modelo 8) |
-| `Retenciones_Ganancias_YYYYMM.pdf` | PDF | Resumen imprimible con detalle de retenciones y comprobantes |
+| `SICORE_retenciones_YYYYMM.txt` | Posición fija 198 chars/línea | Importar en SICORE → "Estándar Retenciones Versión 3.0" |
+| `Retenciones_Ganancias_YYYYMM.pdf` | PDF | Resumen imprimible |
 
-#### Archivo 1: Generan Beneficio (Modelo 1) — 21 campos
+#### Diseño de registro — 21 campos, 198 caracteres por línea
 
-Este archivo contiene **una línea por cada retención** practicada en el período.
+Un registro por factura asociada al pago. Si un pago tiene 2 facturas, genera 2 registros prorrateando base e importe de retención proporcionalmente.
 
-| # | Campo | Valor que genera | Fuente Odoo |
-|---|-------|------------------|-------------|
-| 1 | Tipo Comprobante | `04` (Recibo A) | Fijo para retenciones |
-| 2 | Punto de venta | Del nro de retención | `payment.withholding_number` |
-| 3 | Nro Comprobante | Del nro de retención | `payment.withholding_number` |
-| 4 | CUIT Emisor | CUIT de la empresa | `company.vat` |
-| 5 | CUIT Vendedor | CUIT del proveedor retenido | `partner.vat` |
-| 6 | Descripción | "RETENCION GANANCIAS" | Fijo |
-| 7 | Importe IVA Facturado | Suma IVA facturas asociadas | `invoice.amount_tax` |
-| 8 | Importe Neto | Suma neto facturas asociadas | `invoice.amount_untaxed` |
-| 9 | IVA Computable | `0.00` | No aplica para Ganancias |
-| 10 | Signo | `+` | Positivo para retenciones |
-| 11 | Período DDJJ IVA | `YYYYMM` del período | `date_from` |
-| 12 | Período Pago | `YYYYMM` del período | `date_from` |
-| 13 | Medio Pago | `6` (Efectivo) | Fijo |
-| 14 | Crédito Fiscal | `D` (Directa) | Fijo |
-| 15 | Nro Certificado SIRE | vacío | No aplica |
-| 16 | Nro Certificado SICORE | vacío | No aplica |
-| 17 | Agente Ret IVA | `N` (No) | Ganancias, no IVA |
-| 18 | Monto Retenido | Importe de la retención | `payment.amount` |
-| 19 | Motivo no retención | `0` (Sin motivo) | Porque sí retuvimos |
-| 20 | Fecha Comprobante | Fecha del pago | `payment.date` |
-| 21 | Código Régimen | Código del régimen | `regimen_ganancias_id.codigo_de_regimen` |
+| # | Campo | Pos | Long | Tipo | Fuente Odoo |
+|---|-------|-----|------|------|-------------|
+| 1 | Código comprobante | 1 | 2 | Num | `l10n_latam_document_type_id.code` → tabla |
+| 2 | Fecha emisión comprobante | 3 | 10 | Alfa | `invoice.invoice_date` DD/MM/AAAA |
+| 3 | Número comprobante | 13 | 16 | Alfa | `invoice.name` ljust(16) |
+| 4 | Importe comprobante | 29 | 16 | Num | `invoice.amount_total` → 13ent,2dec |
+| 5 | Código impuesto | 45 | 3 | Num | Campo wizard `cod_impuesto` zfill(3) |
+| 6 | Código régimen | 48 | 4 | Num | `regimen_ganancias_id.codigo_de_regimen` zfill(4) |
+| 7 | Código operación | 52 | 1 | Num | `1` fijo (retención) |
+| 8 | Base de cálculo | 53 | 14 | Num | `payment.withholding_base_amount` → 11ent,2dec |
+| 9 | Fecha emisión retención | 67 | 10 | Alfa | `payment.date` DD/MM/AAAA |
+| 10 | Código condición | 77 | 2 | Num | `partner.imp_ganancias_padron` → `AC`=01, `NI`=02, `EX`=04 |
+| 11 | Ret. sujeto suspendido | 79 | 1 | Num | `0` fijo |
+| 12 | Importe retención | 80 | 14 | Num | `payment.amount` prorrateado → 11ent,2dec |
+| 13 | Porcentaje exclusión | 94 | 6 | Num | `000,00` fijo |
+| 14 | Fecha boletín oficial | 100 | 10 | Alfa | 10 espacios |
+| 15 | Tipo doc retenido | 110 | 2 | Num | `80` fijo (CUIT) |
+| 16 | Nro. doc retenido | 112 | 20 | Alfa | `partner.vat` 11 dig + 9 espacios |
+| 17 | Nro. certificado original | 132 | 14 | Num | `00000000000000` fijo |
+| 18 | Denominación ordenante | 146 | 30 | Alfa | `company.name` ljust(30) |
+| 19 | Acrecentamiento | 176 | 1 | Num | `0` fijo |
+| 20 | CUIT país exterior | 177 | 11 | Num | `00000000000` fijo |
+| 21 | CUIT ordenante/pagador | 188 | 11 | Num | `company.vat` sin guiones |
 
-**Ejemplo de línea generada:**
-```
-04,00001,00000001,30712345679,20123456783,RETENCION GANANCIAS,31500.00,150000.00,0.00,+,202603,202603,6,D,,,N,1656.60,0,15/03/2026,94
-```
+> **Formato numérico**: separador decimal = coma (`,`). Ej: `00000001500,75`
+> **Campos alfanuméricos**: alineados a izquierda, relleno con espacios a la derecha.
+> **Campos numéricos**: alineados a derecha, relleno con ceros a la izquierda.
 
-#### Archivo 2: Perfeccionan Derecho a Beneficio (Modelo 8) — 17 campos
+#### Códigos de impuesto ARCA (campo 5)
 
-Este archivo contiene **una línea por cada factura/NC** que originó la retención.
+| Código | Descripción |
+|--------|-------------|
+| `217` | Impuesto a las Ganancias (general) — **default** |
+| `787` | Ganancias — Relación de Dependencia |
 
-| # | Campo | Valor que genera | Fuente Odoo |
-|---|-------|------------------|-------------|
-| 1 | Tipo Comprobante | Código AFIP del documento | `l10n_latam_document_type_id.code` |
-| 2 | Punto de venta | Del nro de factura | `invoice.name` |
-| 3 | Nro Comprobante | Del nro de factura | `invoice.name` |
-| 4 | Fecha Comprobante | Fecha de la factura | `invoice.invoice_date` |
-| 5 | CUIT Cliente | CUIT del proveedor | `partner.vat` |
-| 6 | Precio Total | Total de la factura | `invoice.amount_total` |
-| 7-16 | Campos transporte/exportación | vacío | No aplica para servicios locales |
-| 17 | Fecha Perfeccionamiento | Fecha de la factura | `invoice.invoice_date` |
+#### Mapeo tipo comprobante Odoo → SICORE (campo 1)
 
-**Ejemplo de línea generada:**
-```
-01,00001,00000020,10/03/2026,20123456783,181500.00,,,,,,,,,,10/03/2026
-```
+| Tipo en Odoo | Código SICORE |
+|--------------|---------------|
+| Factura A/B/M/FCE | `01` |
+| Nota de Débito | `04` |
+| Nota de Crédito | `03` |
+| Anticipo sin factura | `02` (Recibo) |
 
-#### Mapeo tipo comprobante Odoo → SICORE
+#### Importación en SICORE
 
-| Código AFIP | Tipo comprobante | Código SICORE |
-|-------------|-----------------|---------------|
-| 1 | Factura A | 01 |
-| 6 | Factura B | 06 |
-| 3 | Nota de Crédito A | 03 |
-| 8 | Nota de Crédito B | 08 |
-| 2 | Nota de Débito A | 02 |
-| 7 | Nota de Débito B | 07 |
-| 11/51 | Factura M | 51 |
-| 201 | FCE A | 201 |
-| 206 | FCE B | 206 |
-
-#### Importación en ARCA
-
-1. Ingresar a **ARCA → Mis Retenciones → SIRE/SICORE**
-2. Seleccionar el período (ej: 03/2026)
-3. Ir a **Importar datos**
-4. Subir primero el archivo **Perfeccionan Derecho** (Modelo 8)
-5. Subir luego el archivo **Generan Beneficio** (Modelo 1)
-6. Validar y presentar la DDJJ
-
-> **Nota**: el código de impuesto para Ganancias es `0787`. El código de régimen (campo 21) se toma del régimen seleccionado en el Grupo de Pago de Odoo (ej: `94` para locaciones de obra, `116` para profesionales liberales).
+1. Abrir SICORE
+2. Ir a **Archivo → Importar datos**
+3. Seleccionar formato: **"Estándar Retenciones Versión 3.0"**
+4. Seleccionar el archivo `SICORE_retenciones_YYYYMM.txt`
+5. Validar — si acepta, presentar la DDJJ
 
 #### Casos especiales
 
 | Caso | Comportamiento |
 |------|---------------|
-| Anticipo sin factura | Genera línea con tipo `04` (Recibo) y punto venta/nro `00000`/`00000000` |
-| Nota de crédito | Precio total negativo en archivo Perfeccionan Derecho |
-| Múltiples facturas en un pago | Una línea por factura en Perfeccionan Derecho, una línea de retención en Generan Beneficio |
-| Proveedor sin CUIT | CUIT `00000000000` (el wizard advierte pero no bloquea) |
+| Anticipo sin factura | 1 registro con tipo `02` (Recibo), base e importe del pago completos |
+| Nota de crédito | Tipo comprobante `03`, importe prorrateado |
+| Múltiples facturas en un pago | 1 registro por factura, base e importe prorrateados por proporción |
+| Proveedor sin CUIT | CUIT `00000000000` en campo 16 |
 
 ---
 

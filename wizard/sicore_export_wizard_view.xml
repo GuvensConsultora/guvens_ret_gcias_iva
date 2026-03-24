@@ -25,11 +25,9 @@
                         <strong>Archivos generados correctamente.</strong>
                         Descargue los archivos haciendo click en cada uno.
                     </div>
-                    <group string="Archivos TXT para ARCA">
-                        <field name="file_beneficio" filename="file_beneficio_name"/>
-                        <field name="file_beneficio_name" invisible="1"/>
-                        <field name="file_perfeccionan" filename="file_perfeccionan_name"/>
-                        <field name="file_perfeccionan_name" invisible="1"/>
+                    <group string="Archivo TXT para SICORE">
+                        <field name="file_txt" filename="file_txt_name"/>
+                        <field name="file_txt_name" invisible="1"/>
                     </group>
                     <group string="Reporte PDF">
                         <field name="file_pdf" filename="file_pdf_name"/>
