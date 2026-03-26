@@ -20,7 +20,9 @@
                     <table style="width: 100%; border-collapse: collapse; margin-bottom: 6px;">
                         <tr>
                             <td style="text-align: center; padding: 3px; border: 1px solid #999; width: 50%;">
-                                <strong>Nro. Certificado:</strong> <span t-field="o.withholding_number"/>
+                                <strong>Nro. Certificado:</strong>
+                                <span t-if="o.withholding_number" t-field="o.withholding_number"/>
+                                <span t-else="" t-field="o.name"/>
                             </td>
                             <td style="text-align: center; padding: 3px; border: 1px solid #999; width: 50%;">
                                 <strong>Fecha:</strong> <span t-field="o.date"/>

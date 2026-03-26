@@ -265,6 +265,46 @@ class SicoreExportWizard(models.TransientModel):
         )
         return record
 
+    # ── Datos para el PDF ─────────────────────────────────────────────────────
+
+    def _build_pdf_data(self, payments):
+        """Prepara los datos que consume el template QWeb del reporte PDF.
+
+        Retorna (payments_data, total_retenido) donde payments_data es una
+        lista de dicts con la info de cada pago de retención.
+        """
+        payments_data = []
+        total_retenido = 0.0
+        for payment in payments:
+            pg = payment.payment_group_id
+            partner = pg.commercial_partner_id if pg else payment.partner_id
+            regimen = ''
+            if pg and pg.regimen_ganancias_id:
+                regimen = pg.regimen_ganancias_id.display_name or ''
+
+            invoices_data = []
+            invoices = self._get_invoices_for_payment(payment)
+            for inv in invoices:
+                invoices_data.append({
+                    'name': inv.name or '',
+                    'date': inv.invoice_date,
+                    'untaxed': inv.amount_untaxed,
+                    'total': inv.amount_total,
+                })
+
+            payments_data.append({
+                'date': payment.date,
+                'partner': partner.name or '',
+                'cuit': partner.vat or '',
+                'withholding_number': payment.withholding_number or payment.name or '',
+                'regimen': regimen,
+                'amount': payment.amount,
+                'invoices': invoices_data,
+            })
+            total_retenido += payment.amount
+
+        return payments_data, total_retenido
+
     # ── Generador del TXT ─────────────────────────────────────────────────────
 
     def _build_txt(self, payments):
