@@ -201,8 +201,10 @@ guvens_ret_gcias_iva/
 │   └── account_payment.py       # Numeración por diario + helpers template
 ├── wizard/
 │   ├── __init__.py
-│   ├── sicore_export_wizard.py      # Wizard exportación SICORE (2 TXT + PDF)
-│   └── sicore_export_wizard_view.xml # Vista form + menú del wizard
+│   ├── sicore_export_wizard.py                  # Exportación SICORE (TXT + PDF)
+│   ├── sicore_export_wizard_view.xml            # Vista form + menú SICORE
+│   ├── tabla_ganancias_import_wizard.py         # Actualización tablas desde ARCA
+│   └── tabla_ganancias_import_wizard_view.xml   # Vista form + menú actualización
 ├── views/
 │   └── account_tax_view.xml     # Campo diario en form de impuesto
 ├── report/
@@ -451,23 +453,56 @@ Retención = $0,00 (no genera línea de retención)
 - Segundo pago al mismo proveedor en el período → acumulado previo descontado
 - Cambiar diario del impuesto y recalcular → usa nuevo diario
 
-### Escala de retención Ganancias RG 830 — Marzo 2026
+### Actualización automática de tablas desde ARCA
 
-Valores mensuales acumulados (fuente: ARCA, Art. 94 LIG, ene-jun 2026):
+Este módulo permite actualizar las dos tablas de Ganancias directamente desde los PDFs oficiales de ARCA, sin archivos intermedios.
 
-| Desde | Hasta | Fijo | % | Excedente |
-|-------|-------|------|---|-----------|
-| 0 | 500.007,52 | 0 | 5 | 0 |
-| 500.007,52 | 1.000.015,04 | 25.000,38 | 9 | 500.007,52 |
-| 1.000.015,04 | 1.500.022,56 | 70.001,05 | 12 | 1.000.015,04 |
-| 1.500.022,56 | 2.250.033,85 | 130.001,96 | 15 | 1.500.022,56 |
-| 2.250.033,85 | 4.500.067,70 | 242.503,65 | 19 | 2.250.033,85 |
-| 4.500.067,70 | 6.750.101,55 | 670.010,08 | 23 | 4.500.067,70 |
-| 6.750.101,55 | 10.125.152,32 | 1.187.517,87 | 27 | 6.750.101,55 |
-| 10.125.152,32 | 15.187.728,49 | 2.098.781,57 | 31 | 10.125.152,32 |
-| 15.187.728,49 | en adelante | 3.668.180,19 | 35 | 15.187.728,49 |
+#### Acceso
 
-> **Nota**: la escala varía por mes (enero = 1/12 del anual, febrero = 2/12, etc.). Estos valores son para marzo. Actualizar mensualmente en Odoo: Contabilidad → Configuración → Tabla Ganancias Escala.
+**Contabilidad → Configuración → Actualizar Tablas Ganancias**
+
+#### Escala progresiva (Art. 94)
+
+1. Seleccionar el **mes de pago** (default: mes actual)
+2. Clickear **"Actualizar escala desde ARCA"**
+
+El wizard descarga el PDF oficial de ARCA con los tramos acumulados mensuales del Art. 94 LIG, extrae los 9 tramos del mes seleccionado y reemplaza todos los registros de `afip.tabla_ganancias.escala`.
+
+**Fuente**: `https://www.afip.gob.ar/.../Tabla-Art-94-LIG-per-ene-a-jun-2026.pdf`
+
+> La escala varía por mes (enero = 1/12 del anual, febrero = 2/12, etc.). Debe actualizarse cada vez que se cambia de mes de pago.
+
+#### Regímenes — Alícuotas y montos (Anexo VIII RG 830)
+
+1. Clickear **"Actualizar regímenes desde ARCA"**
+
+Descarga el Anexo VIII de la RG 830 vigente desde la Biblioteca Electrónica de ARCA y carga los ~25 regímenes con sus códigos, alícuotas (inscripto/no inscripto) y montos no sujetos a retención.
+
+**Fuente**: `https://biblioteca.afip.gob.ar/.../A8_RG5423.pdf`
+
+> Los regímenes cambian solo cuando ARCA emite una nueva RG (última: RG 5423/2023). No es necesario actualizar mensualmente.
+
+#### Parsing del PDF
+
+El wizard usa `pdfplumber` para extraer las tablas del PDF. Maneja automáticamente:
+
+- Celdas merged (hereda valores de la fila anterior)
+- Formatos como `25%/28%(e)` → toma 28%
+- `s/escala` → porcentaje_inscripto = -1
+- Montos con separador de miles (`67,170` → 67170)
+- Códigos duplicados (`116` → `116 I`, `116 II`)
+
+#### URLs editables
+
+Si ARCA cambia las URLs de los PDFs, se pueden editar directamente en el wizard antes de ejecutar la actualización.
+
+#### Dependencia
+
+Requiere `pdfplumber` instalado en el servidor:
+
+```bash
+pip install pdfplumber
+```
 
 ### Exportación SICORE — Archivo TXT para ARCA
 

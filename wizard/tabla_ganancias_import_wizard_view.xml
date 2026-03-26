@@ -1,0 +1,57 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <record id="tabla_ganancias_import_wizard_form" model="ir.ui.view">
+        <field name="name">tabla.ganancias.import.wizard.form</field>
+        <field name="model">tabla.ganancias.import.wizard</field>
+        <field name="arch" type="xml">
+            <form string="Actualizar Tablas de Ganancias">
+                <group string="Escala progresiva (Art. 94)">
+                    <group>
+                        <field name="mes"/>
+                    </group>
+                    <group>
+                        <field name="url_escala" widget="url"/>
+                    </group>
+                    <footer>
+                        <button name="action_actualizar_escala"
+                                string="Actualizar escala desde ARCA"
+                                type="object" class="btn-primary"/>
+                    </footer>
+                </group>
+                <separator/>
+                <group string="Regímenes — Alícuotas y montos (Anexo VIII RG 830)">
+                    <group>
+                        <field name="url_regimenes" widget="url"/>
+                    </group>
+                    <footer>
+                        <button name="action_actualizar_regimenes"
+                                string="Actualizar regímenes desde ARCA"
+                                type="object" class="btn-primary"/>
+                    </footer>
+                </group>
+                <group invisible="not resultado">
+                    <field name="resultado"/>
+                </group>
+                <footer>
+                    <button string="Cerrar" class="btn-secondary" special="cancel"/>
+                </footer>
+            </form>
+        </field>
+    </record>
+
+    <record id="action_tabla_ganancias_import" model="ir.actions.act_window">
+        <field name="name">Actualizar Tablas Ganancias</field>
+        <field name="res_model">tabla.ganancias.import.wizard</field>
+        <field name="view_mode">form</field>
+        <field name="target">new</field>
+    </record>
+
+    <menuitem
+        id="menu_tabla_ganancias_import"
+        name="Actualizar Tablas Ganancias"
+        parent="account.account_management_menu"
+        action="action_tabla_ganancias_import"
+        sequence="99"/>
+
+</odoo>

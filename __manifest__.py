@@ -19,7 +19,11 @@
         'report/report_withholding_certificate.xml',
         'report/report_sicore_retenciones.xml',
         'wizard/sicore_export_wizard_view.xml',
+        'wizard/tabla_ganancias_import_wizard_view.xml',
     ],
+    'external_dependencies': {
+        'python': ['pdfplumber', 'requests'],
+    },
     'license': 'LGPL-3',
     'installable': True,
     'application': False,
