@@ -297,14 +297,63 @@ Solo la usan los ejemplos 3 y 4. Cargar estos 9 tramos en **Contabilidad → Con
 | `10125152.32` | `15187728.49` | `2098781.57` | `31` | `10125152.32` |
 | `15187728.49` | `999999999` | `3668180.19` | `35` | `15187728.49` |
 
-#### Verificación de cálculo esperado
+#### Ejemplos de validación
 
-| Ejemplo | Base bruta | Monto no sujeto | Base imponible | Cálculo | Retención esperada |
-|---|---|---|---|---|---|
-| Ej. 1 — Bienes ($300.000) | $300.000 | $224.000 | $76.000 | $76.000 × 2% | **$1.520,00** |
-| Ej. 2 — Servicios ($150.000) | $150.000 | $67.170 | $82.830 | $82.830 × 2% | **$1.656,60** |
-| Ej. 3 — Profesional ($500.000) | $500.000 | $16.830 | $483.170 | $483.170 × 5% (tramo 1) | **$24.158,50** |
-| Ej. 4 — Director ($1.200.000) | $1.200.000 | $16.830 | $1.183.170 | $70.001,05 + ($183.155 × 12%) | **$91.979,65** |
+**Ejemplo 1 — Inscripto con % directo (Régimen 78, Venta de bienes)**
+
+- Partner: `imp_ganancias_padron` = `AC` (Inscripto)
+- Régimen 78: 2% inscripto, monto no sujeto $224.000
+- Importe a pagar: $1.500.000 — Sin pagos previos en el mes
+
+```
+Base imponible = $1.500.000 - $224.000 = $1.276.000
+Retención      = $1.276.000 × 2% = $25.520,00
+```
+
+**Ejemplo 2 — Inscripto con Escala (Régimen 116 II, Profesionales liberales)**
+
+- Partner: `imp_ganancias_padron` = `AC` (Inscripto)
+- Régimen 116 II: `porcentaje_inscripto` = -1 (escala), monto no sujeto $16.830
+- Importe a pagar: $2.000.000 — Sin pagos previos en el mes
+
+```
+Base imponible = $2.000.000 - $16.830 = $1.983.170
+Tramo 4: $1.500.022,56 — $2.250.033,85 (fijo $130.001,96 / 15%)
+Retención = $130.001,96 + ($1.983.170 - $1.500.022,56) × 15%
+          = $130.001,96 + $483.147,44 × 0,15
+          = $130.001,96 + $72.472,12
+          = $202.474,08
+```
+
+**Ejemplo 3 — No Inscripto (Régimen 94, Locaciones de obra/servicios)**
+
+- Partner: `imp_ganancias_padron` = `NI` (No Inscripto)
+- Régimen 94: 28% no inscripto
+- Importe a pagar: $500.000
+
+```
+Retención = $500.000 × 28% = $140.000,00
+```
+
+> Para NI se aplica el porcentaje directamente sobre el total, sin restar monto no sujeto a retención.
+
+**Ejemplo 4 — Exento**
+
+- Partner: `imp_ganancias_padron` = `EX` (Exento)
+- Importe a pagar: $3.000.000
+
+```
+Retención = $0,00 (no genera línea de retención)
+```
+
+#### Resumen de ejemplos
+
+| Ejemplo | Padrón | Régimen | Importe | Retención esperada |
+|---|---|---|---|---|
+| 1 — Bienes | AC | 78 (2%) | $1.500.000 | **$25.520,00** |
+| 2 — Profesional (escala) | AC | 116 II (escala) | $2.000.000 | **$202.474,08** |
+| 3 — No inscripto | NI | 94 (28%) | $500.000 | **$140.000,00** |
+| 4 — Exento | EX | cualquiera | $3.000.000 | **$0,00** |
 
 ---
 
