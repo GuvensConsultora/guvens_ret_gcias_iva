@@ -186,6 +186,100 @@ Desde el Grupo de Pago confirmado:
 
 ---
 
+## Lista de chequeo — Puesta en marcha de Retenciones de Ganancias
+
+Checklist para dejar funcionando el cálculo automático de retenciones de Ganancias de principio a fin.
+
+### 1. Módulos instalados
+
+- [ ] `l10n_ar` (localización argentina base)
+- [ ] `l10n_ar_percepciones` (campo `partner_type` en impuestos y pestaña alícuotas en partner)
+- [ ] `account_withholding` (infraestructura base de retenciones)
+- [ ] `account_withholding_automatic` (cálculo automático)
+- [ ] `l10n_ar_account_withholding` (tablas de ganancias AFIP)
+- [ ] `l10n_ar_account_withholding_automatic` (wrapper Argentina)
+- [ ] `l10n_ar_report_withholding` (reporte certificado)
+- [ ] `l10n_ar_report_payment_group` (reporte orden de pago)
+- [ ] `guvens_ret_gcias_iva` (diagnóstico, fix diario, certificado profesional, SICORE)
+- [ ] Dependencia Python: `pdfplumber` instalado en el servidor (`pip install pdfplumber`)
+
+### 2. Configuración de la compañía
+
+- [ ] CUIT cargado y válido
+- [ ] Responsabilidad AFIP configurada (ej: IVA Responsable Inscripto)
+- [ ] Domicilio completo (calle, ciudad, provincia, código postal)
+- [ ] Número de Ingresos Brutos (necesario para certificados IIBB)
+- [ ] **Retenciones automáticas habilitadas** — Contabilidad → Configuración → `automatic_withholdings` = Sí
+- [ ] Regímenes de Ganancias asignados a la compañía (`regimenes_ganancias_ids`)
+
+### 3. Tablas de Ganancias cargadas
+
+- [ ] **Tabla de Alícuotas y Montos** (`afip.tabla_ganancias.alicuotasymontos`) — ~25 regímenes RG 830 cargados
+  - Verificar en: Contabilidad → Configuración → Tabla Ganancias Alícuotas
+  - Actualizar con: Contabilidad → Configuración → Actualizar Tablas Ganancias → "Actualizar regímenes desde ARCA"
+- [ ] **Tabla de Escala progresiva** (`afip.tabla_ganancias.escala`) — 9 tramos del mes actual cargados
+  - Verificar en: Contabilidad → Configuración → Tabla Ganancias Escala
+  - Actualizar con: Contabilidad → Configuración → Actualizar Tablas Ganancias → seleccionar mes → "Actualizar escala desde ARCA"
+  - **Importante**: la escala varía por mes (ene=1/12 del anual, feb=2/12, etc.) — actualizar al cambiar de mes
+
+### 4. Diario de retenciones de Ganancias
+
+- [ ] Crear diario tipo **Efectivo** (ej: "Retenciones Ganancias")
+- [ ] Agregar método de pago saliente: **"Withholding Supplier Payments"**
+- [ ] Configurar secuencia del diario (para numeración automática de certificados)
+
+### 5. Impuesto de retención de Ganancias
+
+- [ ] Crear o verificar impuesto (ej: `Ret Ganancias A`)
+- [ ] Tipo de impuesto: **Pagos a proveedores** (`supplier`)
+- [ ] Tipo de retención: **Tabla de ganancias** (`tabla_ganancias`)
+- [ ] Diario de retención: el diario creado en el paso 4 (`withholding_journal_id`)
+- [ ] Tipo de monto: `untaxed_amount` o `total_amount` según corresponda
+- [ ] Acumulación de pagos: `month` (mensual) si se acumulan retenciones del período
+
+### 6. Proveedores
+
+Por cada proveedor sujeto a retención:
+
+- [ ] CUIT cargado y válido
+- [ ] Responsabilidad AFIP configurada
+- [ ] **Condición Ganancias** (`imp_ganancias_padron`): `AC` (Inscripto), `NI` (No Inscripto), `EX` (Exento), o `NC` (No Corresponde)
+- [ ] **Régimen Ganancias por defecto** (`default_regimen_ganancias_id`): seleccionar el régimen (ej: 94 — Locaciones de obra/servicios)
+- [ ] Proveedor `EX` o `NC` → no se genera retención (correcto)
+
+### 7. Validación funcional
+
+- [ ] Crear factura de proveedor de prueba y confirmarla
+- [ ] Crear Grupo de Pago → seleccionar la factura
+- [ ] Clickear **"Calcular retenciones"**
+- [ ] Verificar en el chatter del Grupo de Pago:
+  - [ ] Paso 1: datos del pago (partner, CUIT, monto, fecha)
+  - [ ] Paso 2: impuestos de retención encontrados
+  - [ ] Paso 3+: cálculo detallado con régimen, alícuota, base imponible, resultado
+- [ ] Verificar que se creó el pago de retención con monto > $0
+- [ ] Verificar que usa el diario correcto (el del paso 4)
+- [ ] Confirmar el Grupo de Pago → verificar número de retención asignado
+- [ ] Imprimir certificado de retención → verificar secciones (régimen, alícuota, comprobantes)
+
+### 8. Validación de casos especiales
+
+- [ ] **Porcentaje fijo** (ej: régimen 94, 2% inscripto): retención = (base - monto no sujeto) × %
+- [ ] **Escala progresiva** (ej: régimen 116 II, profesionales): retención calculada por tramos
+- [ ] **No inscripto**: aplica `porcentaje_no_inscripto` directamente sobre el total
+- [ ] **Exento**: retención = $0, no genera línea
+- [ ] **Segundo pago en el mes**: acumulado previo descontado correctamente
+- [ ] **Retención $0 inesperada**: revisar checklist de diagnóstico en chatter (5 checks con ✓/✗/⚠)
+
+### 9. SICORE (cuando corresponda)
+
+- [ ] Acceder a Contabilidad → Informes → Exportar SICORE Ganancias
+- [ ] Configurar período (desde/hasta) e impuesto
+- [ ] Generar archivos → descargar TXT + PDF
+- [ ] Importar TXT en SICORE → formato "Estándar Retenciones Versión 3.0"
+- [ ] Validar en SICORE sin errores
+
+---
+
 ## Bloque 4: Referencia técnica
 
 ### Arquitectura
