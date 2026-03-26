@@ -342,7 +342,7 @@ class SicoreExportWizard(models.TransientModel):
                     ret_total * proporcion,
                 ))
 
-        return '\r\n'.join(lines)
+        return '\r\n'.join(lines) + '\r\n'
 
     # ── Acción principal ──────────────────────────────────────────────────────
 
