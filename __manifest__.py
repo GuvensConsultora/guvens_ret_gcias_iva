@@ -21,10 +21,7 @@
         'wizard/sicore_export_wizard_view.xml',
         'wizard/tabla_ganancias_import_wizard_view.xml',
     ],
-    'external_dependencies': {
-        'python': ['pdfplumber', 'requests'],
-    },
-    'license': 'LGPL-3',
+'license': 'LGPL-3',
     'installable': True,
     'application': False,
     'auto_install': False,
