@@ -186,10 +186,12 @@ class SicoreExportWizard(models.TransientModel):
         # 2. Fecha emisión comprobante (10, alfa DD/MM/AAAA)
         f2 = (inv.invoice_date if inv else payment.date).strftime('%d/%m/%Y')
 
-        # 3. Número comprobante (16, alfa, ljust + espacios)
-        # Por qué: nombre del comprobante AFIP tal como está en Odoo (ej: "FA-A 0001-00000020")
+        # 3. Número comprobante (16, num, solo dígitos rjust con ceros)
+        # Por qué: SICORE exige campo numérico puro. De "FA-A 0001-00000020"
+        # se extraen solo los dígitos → "000100000020" → rjust(16, '0')
         nombre_comp = (inv.name if inv else payment.withholding_number or payment.name) or ''
-        f3 = nombre_comp.strip()[:16].ljust(16)
+        solo_digitos = ''.join(c for c in nombre_comp if c.isdigit())
+        f3 = solo_digitos[:16].rjust(16, '0')
 
         # 4. Importe comprobante (16, num 13ent+coma+2dec)
         f4 = self._fmt_num16(inv.amount_total if inv else payment.amount)
