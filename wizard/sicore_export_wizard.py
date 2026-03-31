@@ -100,8 +100,8 @@ class SicoreExportWizard(models.TransientModel):
     # ── Helpers de formato SICORE (posición fija) ─────────────────────────────
 
     def _fmt_num16(self, amount):
-        """Numérico 16 chars: 13 enteros + ',' + 2 decimales.
-        Por qué: campo 4 (importe comprobante). Separador decimal = coma (SICORE).
+        """Numérico 16 chars: 13 enteros + '.' + 2 decimales.
+        Por qué: campo 4 (importe comprobante). Separador decimal = punto (SICORE).
         Ej: 1500.75 → '0000000001500.75'
         """
         amount = abs(float(amount or 0))
