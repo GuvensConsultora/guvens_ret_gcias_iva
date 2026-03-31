@@ -20,24 +20,28 @@
                 </group>
 
                 <!-- Estado done: archivos para descargar -->
-                <group invisible="state == 'draft'">
-                    <div class="alert alert-success" role="alert">
+                <div invisible="state == 'draft'" class="mb-3">
+                    <div class="alert alert-success mb-3" role="alert">
                         <strong>Archivos generados correctamente.</strong>
-                        Descargue los archivos haciendo click en cada uno.
+                        Descargue los archivos haciendo clic en cada uno.
                     </div>
-                    <group string="1. Sujetos Retenidos (importar primero)">
-                        <field name="file_sujetos" filename="file_sujetos_name"/>
-                        <field name="file_sujetos_name" invisible="1"/>
+                    <group>
+                        <group string="1. Sujetos Retenidos (importar primero)">
+                            <field name="file_sujetos" filename="file_sujetos_name"/>
+                            <field name="file_sujetos_name" invisible="1"/>
+                        </group>
+                        <group string="2. Detalle de Retenciones">
+                            <field name="file_txt" filename="file_txt_name"/>
+                            <field name="file_txt_name" invisible="1"/>
+                        </group>
                     </group>
-                    <group string="2. Detalle de Retenciones">
-                        <field name="file_txt" filename="file_txt_name"/>
-                        <field name="file_txt_name" invisible="1"/>
+                    <group>
+                        <group string="3. Reporte PDF">
+                            <field name="file_pdf" filename="file_pdf_name"/>
+                            <field name="file_pdf_name" invisible="1"/>
+                        </group>
                     </group>
-                    <group string="Reporte PDF">
-                        <field name="file_pdf" filename="file_pdf_name"/>
-                        <field name="file_pdf_name" invisible="1"/>
-                    </group>
-                </group>
+                </div>
 
                 <field name="state" invisible="1"/>
 
