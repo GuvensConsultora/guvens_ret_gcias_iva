@@ -178,5 +178,8 @@ class AccountTax(models.Model):
                 vals['payment_type'] = 'outbound'
                 vals['partner_type'] = payment_group.partner_type
                 vals['partner_id'] = payment_group.partner_id.id
+                # _chatter_detail es un dict auxiliar para el chatter,
+                # no un campo del modelo — no debe pasar al create
+                chatter_detail = vals.pop('_chatter_detail', None)
                 payment_withholding = payment_withholding.create(vals)
         return True
