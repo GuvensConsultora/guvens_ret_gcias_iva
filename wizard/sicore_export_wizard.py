@@ -13,7 +13,7 @@ class SicoreExportWizard(models.TransientModel):
     para importar retenciones en el aplicativo SICORE.
     Genera dos archivos TXT:
     - Archivo 1: Sujetos Retenidos (83 chars por registro)
-    - Archivo 2: Detalle de Retenciones (145 chars por registro, campos 1-17)
+    - Archivo 2: Detalle de Retenciones (198 chars por registro, campos 1-21)
     Un registro por factura asociada al pago (base e importe prorrateados).
     """
     _name = 'sicore.export.wizard'
@@ -169,10 +169,10 @@ class SicoreExportWizard(models.TransientModel):
     # ── Constructor de registro ────────────────────────────────────────────────
 
     def _build_record(self, payment, inv, base_inv, ret_inv):
-        """Construye un registro SICORE de exactamente 145 chars (campos 1-17).
+        """Construye un registro SICORE de exactamente 198 chars (campos 1-21).
 
         Por qué: el aplicativo SICORE importa registros de posición fija
-        sin separadores. Campos 18-21 no se incluyen.
+        sin separadores.
 
         Args:
             payment : account.payment — el pago de retención
@@ -200,15 +200,18 @@ class SicoreExportWizard(models.TransientModel):
         # 4. Importe comprobante (16, num 13ent+coma+2dec)
         f4 = self._fmt_num16(inv.amount_total if inv else payment.amount)
 
-        # 5. Código impuesto (3, num, zfill)
-        f5 = (self.cod_impuesto or '217').strip().zfill(3)[:3]
+        # 5. Código impuesto (4, num, zfill)
+        # Por qué: SICORE espera 4 chars (pos 45-48), ej: '0217'
+        f5 = (self.cod_impuesto or '217').strip().zfill(4)[:4]
 
-        # 6. Código régimen (4, num, zfill)
-        # Por qué: identifica el régimen de retención Ganancias en ARCA
+        # 6. Código régimen (3, num, zfill)
+        # Por qué: SICORE espera 3 chars (pos 49-51), ej: '078', '094'
         regimen_code = ''
         if pg and pg.regimen_ganancias_id:
             regimen_code = pg.regimen_ganancias_id.codigo_de_regimen or ''
-        f6 = regimen_code.strip()[:4].ljust(4) if regimen_code else '    '
+        # Limpiar: solo dígitos (quitar "I", "II", espacios de "116 I")
+        regimen_digits = ''.join(c for c in regimen_code if c.isdigit())
+        f6 = regimen_digits.zfill(3)[:3] if regimen_digits else '   '
 
         # 7. Código operación (1) → 1=Retención (siempre)
         f7 = '1'
@@ -248,13 +251,24 @@ class SicoreExportWizard(models.TransientModel):
         cert_digits = ''.join(c for c in wh_number if c.isdigit())
         f17 = cert_digits[:14].zfill(14)
 
-        # Campos 18-21 NO se incluyen: el aplicativo SICORE importa
-        # registros de 145 chars (campos 1-17 solamente).
-        record = f1 + f2 + f3 + f4 + f5 + f6 + f7 + f8 + f9 + f10 + \
-                 f11 + f12 + f13 + f14 + f15 + f16 + f17
+        # 18. Denominación ordenante (30, alfa) → espacios
+        f18 = ' ' * 30
 
-        assert len(record) == 145, (
-            'Registro SICORE con longitud %d (esperado 145). '
+        # 19. Acrecentamiento (1, num) → 0
+        f19 = '0'
+
+        # 20. CUIT país retenido (11, alfa) → espacios
+        f20 = ' ' * 11
+
+        # 21. CUIT ordenante (11, alfa) → espacios
+        f21 = ' ' * 11
+
+        record = f1 + f2 + f3 + f4 + f5 + f6 + f7 + f8 + f9 + f10 + \
+                 f11 + f12 + f13 + f14 + f15 + f16 + f17 + \
+                 f18 + f19 + f20 + f21
+
+        assert len(record) == 198, (
+            'Registro SICORE con longitud %d (esperado 198). '
             'Pago: %s | Factura: %s' % (
                 len(record),
                 payment.name,
@@ -337,7 +351,7 @@ class SicoreExportWizard(models.TransientModel):
     # ── Generador del TXT Retenciones (Archivo 2) ────────────────────────────
 
     def _build_txt(self, payments):
-        """Genera el TXT SICORE: un registro de 145 chars por factura por pago.
+        """Genera el TXT SICORE: un registro de 198 chars por factura por pago.
 
         Por qué: Opción B — un registro por factura asociada al pago.
         Base e importe de retención se prorratean proporcionalmente
