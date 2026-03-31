@@ -100,26 +100,26 @@ class SicoreExportWizard(models.TransientModel):
     # ── Helpers de formato SICORE (posición fija) ─────────────────────────────
 
     def _fmt_num16(self, amount):
-        """Numérico 16 chars: 13 enteros + '.' + 2 decimales.
-        Por qué: campo 4 (importe comprobante). Separador decimal = punto (SICORE).
-        Ej: 1500.75 → '0000000001500.75'
+        """Numérico 16 chars: 13 enteros + ',' + 2 decimales.
+        Por qué: campo 4 (importe comprobante). Separador decimal = coma (SICORE).
+        Ej: 1500.75 → '0000000001500,75'
         """
         amount = abs(float(amount or 0))
         enteros = int(amount)
         # Por qué: round() evita errores de punto flotante en los centavos
         centavos = round((amount - enteros) * 100)
-        return str(enteros).zfill(13) + '.' + str(centavos).zfill(2)
+        return str(enteros).zfill(13) + ',' + str(centavos).zfill(2)
 
     def _fmt_num14(self, amount):
-        """Numérico 14 chars: 11 enteros + '.' + 2 decimales.
+        """Numérico 14 chars: 11 enteros + ',' + 2 decimales.
         Por qué: campos 8 (base cálculo) y 12 (importe retención).
-        Separador decimal = punto (requerido por SICORE aplicativo).
-        Ej: 1500.75 → '00000001500.75'
+        Separador decimal = coma (requerido por SICORE aplicativo).
+        Ej: 1500.75 → '00000001500,75'
         """
         amount = abs(float(amount or 0))
         enteros = int(amount)
         centavos = round((amount - enteros) * 100)
-        return str(enteros).zfill(11) + '.' + str(centavos).zfill(2)
+        return str(enteros).zfill(11) + ',' + str(centavos).zfill(2)
 
     def _fmt_cuit(self, vat):
         """CUIT limpio: solo dígitos, 11 chars, zfill.
@@ -229,7 +229,7 @@ class SicoreExportWizard(models.TransientModel):
         f12 = self._fmt_num14(ret_inv)
 
         # 13. Porcentaje exclusión (6) → sin exclusión
-        f13 = '000.00'
+        f13 = '000,00'
 
         # 14. Fecha boletín oficial (10, alfa) → no aplica → espacios
         f14 = ' ' * 10
