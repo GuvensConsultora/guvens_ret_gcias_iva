@@ -25,7 +25,11 @@
                         <strong>Archivos generados correctamente.</strong>
                         Descargue los archivos haciendo click en cada uno.
                     </div>
-                    <group string="Archivo TXT para SICORE">
+                    <group string="1. Sujetos Retenidos (importar primero)">
+                        <field name="file_sujetos" filename="file_sujetos_name"/>
+                        <field name="file_sujetos_name" invisible="1"/>
+                    </group>
+                    <group string="2. Detalle de Retenciones">
                         <field name="file_txt" filename="file_txt_name"/>
                         <field name="file_txt_name" invisible="1"/>
                     </group>
