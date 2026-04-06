@@ -365,6 +365,14 @@ class SicoreExportWizard(models.TransientModel):
             base_total = payment.withholding_base_amount or 0.0
             ret_total = payment.amount or 0.0
 
+            # Fallback: si withholding_base_amount es 0, reconstruir
+            # la base desde las facturas (neto sin IVA) o el monto del pago
+            if not base_total:
+                if invoices:
+                    base_total = sum(abs(inv.amount_untaxed) for inv in invoices)
+                else:
+                    base_total = ret_total
+
             if not invoices:
                 # Anticipo sin factura: un solo registro con el total
                 lines.append(self._build_record(payment, False, base_total, ret_total))
