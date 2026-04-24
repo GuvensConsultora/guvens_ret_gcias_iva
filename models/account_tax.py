@@ -143,29 +143,67 @@ class AccountTax(models.Model):
             ('id', '!=', payment_group.id),
         ])
 
+        # DEBUG: log inicial
+        Log = self.env['ir.logging'].sudo()
+        Log.create({
+            'name': 'guvens_ret_gcias_iva',
+            'type': 'server',
+            'dbname': self.env.cr.dbname,
+            'level': 'INFO',
+            'message': 'GCIAS_ACUM_START tax=%s pg=%s partner=%s regimen=%s '
+                       'range=%s..%s prev_pgs.ids=%s' % (
+                self.id, payment_group.id, payment_group.partner_id.id,
+                payment_group.regimen_ganancias_id.id,
+                first_day, today, prev_pgs.ids),
+            'path': 'guvens_ret_gcias_iva',
+            'line': '147',
+            'func': '_get_ganancias_accumulated',
+        })
+
         accumulated_amount = 0.0
         for pg in prev_pgs:
+            pg_contrib = 0.0
+            branch = 'none'
             # Base neta de facturas conciliadas
             if pg.matched_amount_untaxed:
+                pg_contrib += pg.matched_amount_untaxed
                 accumulated_amount += pg.matched_amount_untaxed
+                branch = 'matched_amount_untaxed'
             elif pg.matched_move_line_ids:
-                # Fallback: cuando matched_amount_untaxed no está computado,
-                # recorrer las líneas conciliadas y armar el neto manualmente
-                # usando el tax_factor (ratio neto/total) de cada factura.
+                branch = 'fallback_lines'
                 for line in pg.matched_move_line_ids:
                     tax_factor = line.move_id._get_tax_factor() or 1.0
                     matched_amt = line.with_context(
                         payment_group_id=pg.id
                     ).payment_group_matched_amount
-                    accumulated_amount += abs(matched_amt) * tax_factor
-            # + Adelanto/ajuste del PG (unreconciled_amount como fallback
-            # por el onchange UI-only de withholdable_advanced_amount
-            # que no se dispara en escrituras ORM)
-            accumulated_amount += (
+                    line_contrib = abs(matched_amt) * tax_factor
+                    pg_contrib += line_contrib
+                    accumulated_amount += line_contrib
+            else:
+                branch = 'empty_lines'
+            advance_contrib = (
                 pg.withholdable_advanced_amount
                 or pg.unreconciled_amount
                 or 0.0
             )
+            accumulated_amount += advance_contrib
+            pg_contrib += advance_contrib
+
+            Log.create({
+                'name': 'guvens_ret_gcias_iva',
+                'type': 'server',
+                'dbname': self.env.cr.dbname,
+                'level': 'INFO',
+                'message': 'GCIAS_ACUM_PG pg=%s name=%s branch=%s '
+                           'lines_count=%s matched_untaxed=%.2f '
+                           'advance=%.2f contrib=%.2f running_total=%.2f' % (
+                    pg.id, pg.display_name, branch,
+                    len(pg.matched_move_line_ids), pg.matched_amount_untaxed,
+                    advance_contrib, pg_contrib, accumulated_amount),
+                'path': 'guvens_ret_gcias_iva',
+                'line': '170',
+                'func': '_get_ganancias_accumulated',
+            })
 
         # Retenciones ya practicadas de este mismo tax
         prev_wh_payments = self.env['account.payment'].search([
@@ -176,5 +214,17 @@ class AccountTax(models.Model):
             ('payment_group_id', 'in', prev_pgs.ids),
         ])
         previous_withholding = sum(prev_wh_payments.mapped('amount'))
+
+        Log.create({
+            'name': 'guvens_ret_gcias_iva',
+            'type': 'server',
+            'dbname': self.env.cr.dbname,
+            'level': 'INFO',
+            'message': 'GCIAS_ACUM_END accumulated=%.2f prev_wh=%.2f' % (
+                accumulated_amount, previous_withholding),
+            'path': 'guvens_ret_gcias_iva',
+            'line': '180',
+            'func': '_get_ganancias_accumulated',
+        })
 
         return accumulated_amount, previous_withholding, bool(previous_withholding)
