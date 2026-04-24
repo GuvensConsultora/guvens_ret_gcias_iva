@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+from datetime import date
 from odoo import models, fields, _
 from odoo.exceptions import UserError
 
@@ -115,3 +116,65 @@ class AccountTax(models.Model):
                 vals['partner_id'] = payment_group.partner_id.id
                 payment_withholding = payment_withholding.create(vals)
         return True
+
+    def _get_ganancias_accumulated(self, payment_group):
+        """Override: acumular base imponible y retenciones previas del mes.
+
+        Bug OCA (l10n_ar_account_withholding): el método original itera sobre
+        account.payment y por cada pago recorre matched_move_line_ids del PG
+        padre, produciendo double-counting cuando el PG tiene N pagos y M
+        líneas conciliadas (suma N×M veces las mismas líneas).
+
+        Fix: iterar sobre payment_groups del mes y sumar matched_amount_untaxed
+        + ajuste/adelanto por cada PG una sola vez. Esto cumple RG 830 art. 26
+        (acumulación mensual por beneficiario).
+        """
+        today = payment_group.payment_date
+        first_day = date(today.year, today.month, 1)
+
+        prev_pgs = self.env['account.payment.group'].search([
+            ('partner_id', '=', payment_group.partner_id.id),
+            ('regimen_ganancias_id', '=',
+                payment_group.regimen_ganancias_id.id),
+            ('retencion_ganancias', '=', 'nro_regimen'),
+            ('state', '=', 'posted'),
+            ('payment_date', '>=', str(first_day)),
+            ('payment_date', '<=', today),
+            ('id', '!=', payment_group.id),
+        ])
+
+        accumulated_amount = 0.0
+        for pg in prev_pgs:
+            # Base neta de facturas conciliadas
+            if pg.matched_amount_untaxed:
+                accumulated_amount += pg.matched_amount_untaxed
+            elif pg.matched_move_line_ids:
+                # Fallback: cuando matched_amount_untaxed no está computado,
+                # recorrer las líneas conciliadas y armar el neto manualmente
+                # usando el tax_factor (ratio neto/total) de cada factura.
+                for line in pg.matched_move_line_ids:
+                    tax_factor = line.move_id._get_tax_factor() or 1.0
+                    matched_amt = line.with_context(
+                        payment_group_id=pg.id
+                    ).payment_group_matched_amount
+                    accumulated_amount += abs(matched_amt) * tax_factor
+            # + Adelanto/ajuste del PG (unreconciled_amount como fallback
+            # por el onchange UI-only de withholdable_advanced_amount
+            # que no se dispara en escrituras ORM)
+            accumulated_amount += (
+                pg.withholdable_advanced_amount
+                or pg.unreconciled_amount
+                or 0.0
+            )
+
+        # Retenciones ya practicadas de este mismo tax
+        prev_wh_payments = self.env['account.payment'].search([
+            ('payment_type', '=', 'outbound'),
+            ('state', '=', 'posted'),
+            ('partner_id', '=', payment_group.partner_id.id),
+            ('tax_withholding_id', '=', self.id),
+            ('payment_group_id', 'in', prev_pgs.ids),
+        ])
+        previous_withholding = sum(prev_wh_payments.mapped('amount'))
+
+        return accumulated_amount, previous_withholding, bool(previous_withholding)
