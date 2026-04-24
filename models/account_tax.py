@@ -143,28 +143,10 @@ class AccountTax(models.Model):
             ('id', '!=', payment_group.id),
         ])
 
-        # DEBUG: log inicial
-        Log = self.env['ir.logging'].sudo()
-        Log.create({
-            'name': 'guvens_ret_gcias_iva',
-            'type': 'server',
-            'dbname': self.env.cr.dbname,
-            'level': 'INFO',
-            'message': 'GCIAS_ACUM_START tax=%s pg=%s partner=%s regimen=%s '
-                       'range=%s..%s prev_pgs.ids=%s' % (
-                self.id, payment_group.id, payment_group.partner_id.id,
-                payment_group.regimen_ganancias_id.id,
-                first_day, today, prev_pgs.ids),
-            'path': 'guvens_ret_gcias_iva',
-            'line': '147',
-            'func': '_get_ganancias_accumulated',
-        })
-
         PartialReconcile = self.env['account.partial.reconcile']
 
         accumulated_amount = 0.0
         for pg in prev_pgs:
-            pg_contrib = 0.0
             # Por qué: resolvemos matched_amount por línea haciendo la query
             # directa a account.partial.reconcile en vez de usar el computed
             # field payment_group_matched_amount — ese compute ORM cachea
@@ -185,32 +167,12 @@ class AccountTax(models.Model):
                         ('credit_move_id', '=', line.id),
                     ])
                     matched_amount -= sum(reconciles.mapped('amount'))
-                line_contrib = abs(matched_amount) * tax_factor
-                pg_contrib += line_contrib
-                accumulated_amount += line_contrib
-            advance_contrib = (
+                accumulated_amount += abs(matched_amount) * tax_factor
+            accumulated_amount += (
                 pg.withholdable_advanced_amount
                 or pg.unreconciled_amount
                 or 0.0
             )
-            accumulated_amount += advance_contrib
-            pg_contrib += advance_contrib
-
-            Log.create({
-                'name': 'guvens_ret_gcias_iva',
-                'type': 'server',
-                'dbname': self.env.cr.dbname,
-                'level': 'INFO',
-                'message': 'GCIAS_ACUM_PG pg=%s name=%s '
-                           'lines_count=%s pay_lines=%s '
-                           'advance=%.2f contrib=%.2f running_total=%.2f' % (
-                    pg.id, pg.display_name,
-                    len(pg.matched_move_line_ids), len(payment_line_ids),
-                    advance_contrib, pg_contrib, accumulated_amount),
-                'path': 'guvens_ret_gcias_iva',
-                'line': '170',
-                'func': '_get_ganancias_accumulated',
-            })
 
         # Retenciones ya practicadas de este mismo tax
         prev_wh_payments = self.env['account.payment'].search([
@@ -221,17 +183,5 @@ class AccountTax(models.Model):
             ('payment_group_id', 'in', prev_pgs.ids),
         ])
         previous_withholding = sum(prev_wh_payments.mapped('amount'))
-
-        Log.create({
-            'name': 'guvens_ret_gcias_iva',
-            'type': 'server',
-            'dbname': self.env.cr.dbname,
-            'level': 'INFO',
-            'message': 'GCIAS_ACUM_END accumulated=%.2f prev_wh=%.2f' % (
-                accumulated_amount, previous_withholding),
-            'path': 'guvens_ret_gcias_iva',
-            'line': '180',
-            'func': '_get_ganancias_accumulated',
-        })
 
         return accumulated_amount, previous_withholding, bool(previous_withholding)
