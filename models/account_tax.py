@@ -160,27 +160,34 @@ class AccountTax(models.Model):
             'func': '_get_ganancias_accumulated',
         })
 
+        PartialReconcile = self.env['account.partial.reconcile']
+
         accumulated_amount = 0.0
         for pg in prev_pgs:
             pg_contrib = 0.0
-            branch = 'none'
-            # Base neta de facturas conciliadas
-            if pg.matched_amount_untaxed:
-                pg_contrib += pg.matched_amount_untaxed
-                accumulated_amount += pg.matched_amount_untaxed
-                branch = 'matched_amount_untaxed'
-            elif pg.matched_move_line_ids:
-                branch = 'fallback_lines'
-                for line in pg.matched_move_line_ids:
-                    tax_factor = line.move_id._get_tax_factor() or 1.0
-                    matched_amt = line.with_context(
-                        payment_group_id=pg.id
-                    ).payment_group_matched_amount
-                    line_contrib = abs(matched_amt) * tax_factor
-                    pg_contrib += line_contrib
-                    accumulated_amount += line_contrib
-            else:
-                branch = 'empty_lines'
+            # Por qué: resolvemos matched_amount por línea haciendo la query
+            # directa a account.partial.reconcile en vez de usar el computed
+            # field payment_group_matched_amount — ese compute ORM cachea
+            # por primer context visitado y devuelve 0 para PGs siguientes
+            # cuando se itera en loop.
+            payment_line_ids = pg.payment_ids.mapped('invoice_line_ids').ids
+            for line in pg.matched_move_line_ids:
+                tax_factor = line.move_id._get_tax_factor() or 1.0
+                matched_amount = 0.0
+                if payment_line_ids:
+                    reconciles = PartialReconcile.search([
+                        ('credit_move_id', 'in', payment_line_ids),
+                        ('debit_move_id', '=', line.id),
+                    ])
+                    matched_amount += sum(reconciles.mapped('amount'))
+                    reconciles = PartialReconcile.search([
+                        ('debit_move_id', 'in', payment_line_ids),
+                        ('credit_move_id', '=', line.id),
+                    ])
+                    matched_amount -= sum(reconciles.mapped('amount'))
+                line_contrib = abs(matched_amount) * tax_factor
+                pg_contrib += line_contrib
+                accumulated_amount += line_contrib
             advance_contrib = (
                 pg.withholdable_advanced_amount
                 or pg.unreconciled_amount
@@ -194,11 +201,11 @@ class AccountTax(models.Model):
                 'type': 'server',
                 'dbname': self.env.cr.dbname,
                 'level': 'INFO',
-                'message': 'GCIAS_ACUM_PG pg=%s name=%s branch=%s '
-                           'lines_count=%s matched_untaxed=%.2f '
+                'message': 'GCIAS_ACUM_PG pg=%s name=%s '
+                           'lines_count=%s pay_lines=%s '
                            'advance=%.2f contrib=%.2f running_total=%.2f' % (
-                    pg.id, pg.display_name, branch,
-                    len(pg.matched_move_line_ids), pg.matched_amount_untaxed,
+                    pg.id, pg.display_name,
+                    len(pg.matched_move_line_ids), len(payment_line_ids),
                     advance_contrib, pg_contrib, accumulated_amount),
                 'path': 'guvens_ret_gcias_iva',
                 'line': '170',
