@@ -11,17 +11,30 @@ class AccountPaymentGroup(models.Model):
     """
     _inherit = 'account.payment.group'
 
-    # Por qué: en recibos de cliente el OCA deja `retencion_ganancias` vacío y el
-    # invisible="company_regimenes_ganancias_ids == []" se evalúa de forma
+    # Por qué (a): en recibos de cliente el OCA deja `retencion_ganancias` vacío
+    # y el invisible="company_regimenes_ganancias_ids == []" se evalúa de forma
     # inestable en Odoo 17, dejando el campo visible y required. Los recibos a
     # clientes nunca llevan retención de Ganancias del lado del vendedor, así
     # que forzamos 'no_aplica' por default y la vista heredada lo oculta para
-    # customer. Reportado por Anael (Lupatini) el 2026-05-16.
+    # customer.
+    # Por qué (b): el `default_get` del OCA `account_payment_group` setea
+    # `account_internal_type` mirando `self._context.get('partner_type')`, pero
+    # el menú "Recibos de Clientes" pasa `default_partner_type='customer'` en
+    # vez de `partner_type='customer'`. El OCA cae al else y deja
+    # `liability_payable` (cuentas de proveedor), rompiendo el dominio del
+    # modal "Agregar líneas de deuda" (queda vacío porque busca pasivo en un
+    # cliente). Lo forzamos a `asset_receivable` cuando el res ya tiene
+    # `partner_type='customer'`, y `liability_payable` cuando es supplier.
+    # Ambos reportados por Anael (Lupatini) el 2026-05-16.
     @api.model
     def default_get(self, fields_list):
         res = super().default_get(fields_list)
-        if res.get('partner_type') == 'customer' and not res.get('retencion_ganancias'):
-            res['retencion_ganancias'] = 'no_aplica'
+        if res.get('partner_type') == 'customer':
+            res['account_internal_type'] = 'asset_receivable'
+            if not res.get('retencion_ganancias'):
+                res['retencion_ganancias'] = 'no_aplica'
+        elif res.get('partner_type') == 'supplier':
+            res['account_internal_type'] = 'liability_payable'
         return res
 
     def action_payment_sent(self):
