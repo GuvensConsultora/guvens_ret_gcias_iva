@@ -1,5 +1,5 @@
 import base64
-from odoo import models, fields, _
+from odoo import api, models, fields, _
 from markupsafe import Markup
 
 
@@ -10,6 +10,19 @@ class AccountPaymentGroup(models.Model):
     del Payment Group, y luego ejecuta el cálculo real.
     """
     _inherit = 'account.payment.group'
+
+    # Por qué: en recibos de cliente el OCA deja `retencion_ganancias` vacío y el
+    # invisible="company_regimenes_ganancias_ids == []" se evalúa de forma
+    # inestable en Odoo 17, dejando el campo visible y required. Los recibos a
+    # clientes nunca llevan retención de Ganancias del lado del vendedor, así
+    # que forzamos 'no_aplica' por default y la vista heredada lo oculta para
+    # customer. Reportado por Anael (Lupatini) el 2026-05-16.
+    @api.model
+    def default_get(self, fields_list):
+        res = super().default_get(fields_list)
+        if res.get('partner_type') == 'customer' and not res.get('retencion_ganancias'):
+            res['retencion_ganancias'] = 'no_aplica'
+        return res
 
     def action_payment_sent(self):
         """Enviar por email: adjunta Orden de Pago + certificados de retención.

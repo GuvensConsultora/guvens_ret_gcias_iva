@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <!--
+        Oculta el bloque "Retención Ganancias" en recibos de cliente.
+
+        Por qué: el OCA l10n_ar_account_withholding agrega label+div con
+        invisible="company_regimenes_ganancias_ids == []". En Odoo 17 esa
+        condición sobre m2m vacío se evalúa de forma inestable y el campo
+        queda visible+required en customer. Las retenciones de Ganancias
+        son del lado del pagador (cliente), no del receptor del cobro
+        (vendedor), así que en recibos de cliente nunca corresponde
+        parametrizar el campo. Lo forzamos invisible cuando
+        partner_type == 'customer'.
+
+        El default_get del modelo (heredado en este módulo) además garantiza
+        que retencion_ganancias quede en 'no_aplica' por si algún flujo
+        externo lo lee posteriormente.
+    -->
+    <record id="view_account_payment_group_form_hide_retencion_customer" model="ir.ui.view">
+        <field name="name">account.payment.group.form.hide.retencion.customer</field>
+        <field name="model">account.payment.group</field>
+        <field name="inherit_id" ref="l10n_ar_account_withholding.view_account_payment_group_form"/>
+        <field name="arch" type="xml">
+            <xpath expr="//label[@for='retencion_ganancias']" position="attributes">
+                <attribute name="invisible">company_regimenes_ganancias_ids == [] or partner_type == 'customer'</attribute>
+            </xpath>
+            <xpath expr="//field[@name='retencion_ganancias']/.." position="attributes">
+                <attribute name="invisible">company_regimenes_ganancias_ids == [] or partner_type == 'customer'</attribute>
+            </xpath>
+            <xpath expr="//field[@name='retencion_ganancias']" position="attributes">
+                <attribute name="required">company_regimenes_ganancias_ids != [] and partner_type != 'customer' and state in ['draft', 'confirmed']</attribute>
+            </xpath>
+        </field>
+    </record>
+</odoo>
