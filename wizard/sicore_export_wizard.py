@@ -104,10 +104,14 @@ class SicoreExportWizard(models.TransientModel):
         Por qué: campo 4 (importe comprobante). Separador decimal = coma (SICORE).
         Ej: 1500.75 → '0000000001500,75'
         """
-        amount = abs(float(amount or 0))
-        enteros = int(amount)
-        # Por qué: round() evita errores de punto flotante en los centavos
-        centavos = round((amount - enteros) * 100)
+        # Por qué: calcular en centavos enteros con divmod garantiza que
+        # centavos quede SIEMPRE en 0-99. Calcular enteros/centavos por
+        # separado con round() puede devolver centavos=100 (cuando la parte
+        # decimal cae en [0.995, 0.999]) → str(100) son 3 chars y el campo
+        # se va a 17 → el registro completo pasa de 198 a 199 (bug junio
+        # 2026, base prorrateada 157121,99983... → centavos 100).
+        total_cent = round(abs(float(amount or 0)) * 100)
+        enteros, centavos = divmod(total_cent, 100)
         return str(enteros).zfill(13) + ',' + str(centavos).zfill(2)
 
     def _fmt_num14(self, amount):
@@ -116,9 +120,9 @@ class SicoreExportWizard(models.TransientModel):
         Separador decimal = coma (requerido por SICORE aplicativo).
         Ej: 1500.75 → '00000001500,75'
         """
-        amount = abs(float(amount or 0))
-        enteros = int(amount)
-        centavos = round((amount - enteros) * 100)
+        # Ver _fmt_num16: centavos en 0-99 vía divmod (evita centavos=100).
+        total_cent = round(abs(float(amount or 0)) * 100)
+        enteros, centavos = divmod(total_cent, 100)
         return str(enteros).zfill(11) + ',' + str(centavos).zfill(2)
 
     def _fmt_cuit(self, vat):
